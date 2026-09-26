@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Buzz &amp; Bloom</title>
+<meta name="description" content="Buzz & Bloom: a relaxing garden game. Plant flowers, let your bees cross-pollinate them into new species, and grow the dreamiest garden.">
+<meta name="theme-color" content="#ffd98a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg transform='translate(32 32)'%3E%3Cg fill='%23ff85bd' stroke='%23b04a78' stroke-width='2'%3E%3Cellipse ry='13' rx='9' cy='-15'/%3E%3Cellipse ry='13' rx='9' cy='-15' transform='rotate(72)'/%3E%3Cellipse ry='13' rx='9' cy='-15' transform='rotate(144)'/%3E%3Cellipse ry='13' rx='9' cy='-15' transform='rotate(216)'/%3E%3Cellipse ry='13' rx='9' cy='-15' transform='rotate(288)'/%3E%3C/g%3E%3Ccircle r='8' fill='%23ffc928' stroke='%238a5a14' stroke-width='2'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preload" href="assets/fonts/LilitaOne-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/Fredoka-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- CrazyGames SDK v3 (loaded before the game code, as the docs require). The game runs without it. -->
+<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
+<link rel="stylesheet" href="styles/game.css">
+<style>#boot-error { display: none; position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 200; color: #fff; font: 600 16px/1.4 system-ui, sans-serif; background: #c0263d; padding: 16px 20px; border-radius: 12px; max-width: 520px; }</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="ui"></div>
+<div id="loading">
+  <div class="box">
+    <svg class="bee" viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="22" cy="18" rx="11" ry="8" fill="#eaf6ff" stroke="#6a8aa0" stroke-width="2"/><ellipse cx="40" cy="16" rx="11" ry="8" fill="#eaf6ff" stroke="#6a8aa0" stroke-width="2"/><ellipse cx="32" cy="36" rx="18" ry="15" fill="#ffc928" stroke="#3a2a14" stroke-width="3"/><path d="M26 22v28M36 22v28" stroke="#3a2a14" stroke-width="5"/><circle cx="46" cy="33" r="3" fill="#3a2a14"/></svg>
+    <div class="logo">Buzz &amp; Bloom<small>a relaxing flower garden</small></div>
+    <div class="bar"><i></i></div>
+    <div class="tip">Waking up the bees…</div>
+  </div>
+</div>
+<div id="boot-error"></div>
+<script src="game.js"></script>
+</body>
+</html>

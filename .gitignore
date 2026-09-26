@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+game.js
+game.js.map
+test-results/
+shots/
+.DS_Store
