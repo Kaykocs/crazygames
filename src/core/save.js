@@ -10,7 +10,8 @@ export function loadSave() {
     const raw = sdk.getItem(KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    return s && s.v === 1 ? s : null;
+    // v2 (new tutorial, quests, crossing by hand) starts every pre-release test garden fresh
+    return s && s.v === 2 ? s : null;
   } catch (e) { console.warn('[save] corrupt save ignored', e); return null; }
 }
 

@@ -104,56 +104,82 @@ for (const name of only) {
     await snap('daily');
   }
   if (args.play) {
-    // play the tutorial through real input
-    const g = () => page.evaluate(() => ({ step: __game.garden.s.tutorial, pouch: __game.garden.s.pouch.length, seeds: __game.garden.s.seeds.length }));
-    const tapChip = async (i = 0) => { const loc = page.locator('.seedchip').nth(i); if (await loc.count()) await loc.click({ timeout: 10000, force: true }); };
-    const tapWorld = async (x, y, z) => {
-      const p = await page.evaluate(([x, y, z]) => __game.view.project(x, y, z), [x, y, z]);
-      if (VIEWS[name].hasTouch) await page.touchscreen.tap(p.x, p.y); else await page.mouse.click(p.x, p.y);
+    // play the tutorial like a brand-new player: follow the pointing hand with real taps and drags
+    const touch = !!VIEWS[name].hasTouch;
+    const cdp = touch ? await ctx.newCDPSession(page) : null;
+    const tap = async (x, y) => { if (touch) await page.touchscreen.tap(x, y); else await page.mouse.click(x, y); };
+    const drag = async (x0, y0, x1, y1, steps = 12) => {
+      if (touch) {
+        const tp = (x, y) => [{ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 }];
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: tp(x0, y0) });
+        for (let k = 1; k <= steps; k++) { const t = k / steps; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: tp(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t) }); await page.waitForTimeout(16); }
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      } else {
+        await page.mouse.move(x0, y0); await page.mouse.down();
+        for (let k = 1; k <= steps; k++) { const t = k / steps; await page.mouse.move(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t); await page.waitForTimeout(16); }
+        await page.mouse.up();
+      }
     };
-    await tapChip(0);
-    const c = await page.evaluate(() => ({ ...__game.garden.pos[__game.garden.byKey.get('0,0')] }));
-    await tapWorld(c.x, 0.2, c.z);
-    await page.waitForTimeout(300);
-    await tapChip(0);
-    const n = await page.evaluate(() => { const g = __game.garden; const j = g.nb[g.byKey.get('0,0')].find((k) => g.plots[k].owned && !g.plots[k].plant); return { ...g.pos[j] }; });
-    await tapWorld(n.x, 0.2, n.z);
-    console.log(`[${name}] after planting`, await g());
-    await page.evaluate(() => __game.debug.sim(2));
-    await page.waitForTimeout(400);
-    await page.screenshot({ animations: 'disabled', path: `shots/${name}-1-growing.png` });
-    for (let k = 0; k < 40 && !(await page.evaluate(() => __game.garden.s.seeds.length > 0)); k++) await page.evaluate(() => __game.debug.sim(1));
-    await page.evaluate(() => __game.debug.sim(0.6));
-    await page.waitForTimeout(400);
-    await page.screenshot({ animations: 'disabled', path: `shots/${name}-2-seed.png` });
-    const orb = await page.evaluate(() => { const o = [...__game.view.orbs.keys()][0]; return __game.view.orbScreen(o); });
-    if (VIEWS[name].hasTouch) await page.touchscreen.tap(orb.x, orb.y); else await page.mouse.click(orb.x, orb.y);
-    await page.waitForTimeout(600);
-    console.log(`[${name}] after collect`, await g());
-    // harvest a bloom
-    const bloom = await page.evaluate(() => { const g = __game.garden; const i = g.plots.findIndex((p, k) => g.isBloom(k)); return i >= 0 ? __game.view.headPos(i) : null; });
-    if (bloom) await tapWorld(bloom.x, bloom.y, bloom.z);
-    await page.waitForTimeout(700);
-    await page.screenshot({ animations: 'disabled', path: `shots/${name}-3-harvest.png` });
-    // plant the hybrid
-    const k = await page.evaluate(() => __game.garden.s.pouch.findIndex((e) => e.g.c1 === 6));
-    await tapChip(Math.max(0, k));
-    const e = await page.evaluate(() => { const g = __game.garden; const i = g.plots.findIndex((p) => p.owned && !p.plant); return { ...g.pos[i] }; });
-    await tapWorld(e.x, 0.2, e.z);
-    for (let k = 0; k < 60 && !(await page.evaluate(() => !!document.querySelector('.card-pop'))); k++) {
-      const t0 = Date.now();
-      await page.evaluate(() => __game.debug.sim(0.5));
-      if (args.verbose) console.log(`[${name}] sim`, k, Date.now() - t0, 'ms', await page.evaluate(() => JSON.stringify({ step: __game.garden.s.tutorial, cards: __game.ui.cards.length, open: !!__game.ui.cardOpen, plants: __game.garden.plots.filter((p) => p.plant).map((p) => p.plant.stage + ':' + p.plant.g.c1 + ':' + p.plant.t.toFixed(1)) })));
+    const state = () => page.evaluate(() => {
+      const G = __game, st = G._tutStep(), sp = st?.spec?.(G), h = sp?.hand;
+      return { t: G.garden.s.tutorial, key: st?.key || null, hand: h ? { tap: h.tap ? { x: h.tap.x, y: h.tap.y } : null, drag: h.drag || null } : null,
+        card: !!document.querySelector('.card-pop:not(.leaving) .btn'), text: document.querySelector('.tut-bubble .txt')?.textContent || '' };
+    });
+    const seen = new Set();
+    let shots = 0;
+    const shot = async (tag) => page.screenshot({ path: `shots/${name}-t${String(++shots).padStart(2, '0')}-${tag}.png` });
+    const t0 = Date.now();
+    for (let k = 0; k < 160; k++) {
+      const st = await state();
+      if (st.t >= 99 && !st.card) break;
+      if (st.key && !seen.has(st.key)) {
+        seen.add(st.key); await page.waitForTimeout(300); await shot(st.key); console.log(`[${name}] step ${st.key}: "${st.text}"`);
+        if (st.key === 'collect') console.log(`[${name}]   orb/hand`, await page.evaluate(() => { const id = [...__game.view.orbs.keys()][0]; const o = __game.view.orbScreen(id); const r = document.querySelector('.tut-hand')?.getBoundingClientRect(); return JSON.stringify({ orb: [Math.round(o.x), Math.round(o.y)], hand: r ? [Math.round(r.left + 12), Math.round(r.top + 6)] : null }); }));
+      }
+      if (st.card) {
+        if (!seen.has('card' + st.t)) { seen.add('card' + st.t); await page.waitForTimeout(700); await shot('card'); }
+        await page.locator('.card-pop:not(.leaving) .btn').first().click();
+        await page.waitForTimeout(500);
+        continue;
+      }
+      if (st.hand?.drag) { const d = st.hand.drag; await drag(d.x0, d.y0, d.x1, d.y1); await page.waitForTimeout(450); }
+      else if (st.hand?.tap) { await tap(st.hand.tap.x, st.hand.tap.y); await page.waitForTimeout(st.key === 'harvest' ? 100 : 260); }
+      else await page.waitForTimeout(300);
     }
-    await page.evaluate(() => __game.debug.sim(0.8));
-    await page.waitForTimeout(900);
-    await page.screenshot({ animations: 'disabled', path: `shots/${name}-4-discovery.png` });
-    console.log(`[${name}] tutorial state`, await g());
-    await page.waitForTimeout(2600);
-    await page.evaluate(() => { document.querySelectorAll('.card-pop .btn').forEach((b) => b.click()); });
-    await page.waitForTimeout(800);
-    await page.evaluate(() => { document.querySelectorAll('.card-pop .btn').forEach((b) => b.click()); });
-    await page.waitForTimeout(600);
+    const after = await page.evaluate(() => { const g = __game.garden; return { tut: g.s.tutorial, quest: g.currentQuest()?.id, coins: g.s.coins, level: g.s.level, bestCombo: g.s.stats.bestCombo, book: g.discoveredCount() }; });
+    console.log(`[${name}] tutorial played in ${((Date.now() - t0) / 1000).toFixed(0)} s (headless):`, JSON.stringify(after));
+    if (after.tut < 99) { errors++; console.log(`[${name}] tutorial did not finish`); }
+    await page.waitForTimeout(1400);
+    await shot('quest-hint');
+    // the first quest: tap the quest chip for a hint, then buy a plot where the hand points
+    let hint = await page.evaluate(() => { const h = __game.hint && __game._hintSpec(__game.hint.kind); return h?.hand?.tap || null; });
+    if (!hint) {
+      const chip = await page.evaluate(() => { const r = document.querySelector('.chip.goal').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await tap(chip.x, chip.y);
+      await page.waitForTimeout(600);
+      hint = await page.evaluate(() => { const h = __game.hint && __game._hintSpec(__game.hint.kind); return h?.hand?.tap || null; });
+    }
+    console.log(`[${name}] quest hint points at`, JSON.stringify(hint));
+    if (hint) { await tap(hint.x, hint.y); await page.waitForTimeout(900); }
+    const q2 = await page.evaluate(() => ({ quest: __game.garden.currentQuest()?.id, plots: __game.garden.ownedCount() }));
+    console.log(`[${name}] after following the quest hint`, JSON.stringify(q2));
+    if (q2.quest === 'plot') { errors++; console.log(`[${name}] first quest (buy a plot) not completed by its hint`); }
+    await shot('quest2');
+    // the golden bee: appears, gets tapped, pays out
+    await page.evaluate(() => { __game.debug.golden(); __game.debug.step(17); __game.debug.sim(3.5); __game.debug.freeze(); });
+    const gbp = await page.evaluate(() => { const gb = __game.view.golden; return gb.on ? gb.screen(__game.stage) : null; });
+    await shot('golden');
+    if (gbp) {
+      const c0 = await page.evaluate(() => __game.garden.s.coins);
+      await tap(gbp.x, gbp.y);
+      await page.evaluate(() => __game.debug.unfreeze());
+      await page.waitForTimeout(300);
+      const c1 = await page.evaluate(() => __game.garden.s.coins);
+      console.log(`[${name}] golden bee caught: +${c1 - c0} coins`);
+      if (c1 <= c0) { errors++; console.log(`[${name}] golden bee tap failed`); }
+      await shot('golden-caught');
+    }
+    else { errors++; console.log(`[${name}] golden bee did not appear`); }
     // a richer garden for the beauty shots
     await page.evaluate(() => {
       const G = __game, g = G.garden;

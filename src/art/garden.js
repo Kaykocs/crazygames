@@ -1,9 +1,11 @@
 // GardenView (2D): turns the Garden simulation into the illustrated garden — planters, growing flowers, seed
 // bubbles and bees — owns camera framing and picking. It never changes game state; it only reads and animates.
-import { COLORS, M } from '../game/genetics.js';
+import { COLORS, M, speciesId } from '../game/genetics.js';
 import { key } from '../game/hex.js';
 import { HIVE_POS } from '../game/garden.js';
 import { damp, clamp, ease, rng, smoothstep, lerp } from '../core/math.js';
+
+const TAU = Math.PI * 2;
 import { SQ, HY } from './view3q.js';
 import { drawSprite, Sprite, softEllipse } from './paint.js';
 import { planterSprite, wetSprite, glowSprite, rimSprite, saleSprite, SOIL_Y, PLANTER } from './planter.js';
@@ -11,6 +13,7 @@ import { paintHead, paintTulip, paintLotus, paintBud, paintLeaf, geneKey } from 
 import { Bees, Butterflies, bank, orbSprite, shadowSprite } from './critters.js';
 import { HIVE_ENTRANCE } from './built.js';
 import { propSprite } from './world.js';
+import { GoldenBee } from './golden.js';
 
 // wild meadow growing on plots the player hasn't claimed yet (cleared when the plot is bought)
 const WILD_COLS = [['#ff7eb6', '#ffffff', '#ffd23f'], ['#8f6bff', '#ffffff', '#4fb5ff'], ['#ff9f43', '#ffd23f', '#ffffff'], ['#ffffff', '#ffd23f', '#ff8fb8']];
@@ -57,7 +60,7 @@ export class GardenView {
     this.N = garden.plots.length;
     this.R = rng(3);
     this.pv = garden.plots.map((p, i) => ({
-      i, stem: 0, head: 0, open: 0, pop: 0, harvestT: 0, bedK: p.owned ? 1 : 0, hover: 0, wet: 0, bump: 0,
+      i, stem: 0, head: 0, open: 0, pop: 0, harvestT: 0, bedK: p.owned ? 1 : 0, hover: 0, wet: 0, bump: 0, tap: 0, ringT: 0, ringK: 0, rest: 0, target: 0,
       seed: this.R(), lean: (this.R() - 0.5) * 0.06, leafV: Math.floor(this.R() * 3), g: null, sortY: 0, draw: null,
     }));
     for (const pv of this.pv) pv.draw = (ctx, s, t) => this._drawPlot(ctx, s, pv, t);
@@ -69,6 +72,9 @@ export class GardenView {
     this.bees = new Bees(fx);
     this.butterflies = new Butterflies(quality.ambient >= 1 ? 4 : 2);
     this.orbs = new Map();
+    this.golden = new GoldenBee(fx);
+    this.drag = null;                                      // pollen being carried: { from, x, y, over, ok }
+    this.zips = [];                                        // pollen flying from one bloom to another after a cross
     this.hoverPlot = -1;
     this.highlightEmpty = false;
     this.cam = { x: 0, z: 0 };
@@ -203,6 +209,19 @@ export class GardenView {
       case 'seed': this._addOrb(p); break;
       case 'seedCollected': this._removeOrb(p.id); break;
       case 'bee:pollinate': { const h = this.headPos(p.i); fx.pollen(h.x, h.y + 0.1, h.z, 8); break; }
+      case 'boost': {
+        pv.tap = 1; pv.ringT = 1.5; pv.ringK = p.k;
+        const top = SOIL_Y + pv.stem + 0.15;
+        fx.sparkles(w.x, top, w.z, p.k >= 1 ? '#fff4a8' : '#d8ffb0', p.k >= 1 ? 10 : 4, 0.35, 0.8);
+        if (p.taps % 2 === 1) fx.leaves(w.x, SOIL_Y + 0.15, w.z, 2);
+        break;
+      }
+      case 'cross': {
+        this.zips.push({ a: p.a, b: p.b, t: 0, c: COLORS[p.g.c1].hex });
+        this.pv[p.a].rest = 1; this.pv[p.b].pop = Math.max(this.pv[p.b].pop, 0.45);
+        const h = this.headPos(p.a); fx.pollen(h.x, h.y + 0.1, h.z, 6);
+        break;
+      }
       default: break;
     }
   }
@@ -231,6 +250,9 @@ export class GardenView {
     }
     for (let i = 0; i < this.N; i++) this._animPlot(this.pv[i], g.plots[i], dt);
     this._orbs(dt, time);
+    this.golden.update(dt, time);
+    for (const z of this.zips) z.t += dt;
+    if (this.zips.length && this.zips[0].t > 0.6) this.zips = this.zips.filter((z) => z.t <= 0.6);
     this.bees.update(dt, time, g.bees, g, (i) => this.headY(i), this.hive);
     const spots = [];
     this.pv.forEach((pv, i) => { if (g.isBloom(i) && pv.open > 0.8) spots.push(this.headPos(i)); });
@@ -243,6 +265,10 @@ export class GardenView {
     pv.hover = damp(pv.hover, this.hoverPlot === pv.i ? 1 : 0, 14, dt);
     pv.wet = Math.max(0, pv.wet - dt * 0.15);
     pv.bump = Math.max(0, pv.bump - dt * 3);
+    pv.tap = Math.max(0, pv.tap - dt * 2.4);
+    pv.ringT = Math.max(0, pv.ringT - dt);
+    pv.rest = Math.max(0, pv.rest - dt * 0.8);
+    pv.target = damp(pv.target, this.drag && this.drag.over === pv.i && this.drag.ok ? 1 : 0, 16, dt);
     let tStem = 0, tHead = 0, tOpen = 0;
     if (pl) {
       pv.g = pl.g;
@@ -315,6 +341,7 @@ export class GardenView {
       }
     }
     for (const o of this.orbs.values()) list.push(o);
+    this.golden.collect(list);
     this.bees.collect(list);
     this.butterflies.collect(list);
   }
@@ -340,10 +367,20 @@ export class GardenView {
         if (pv.hover > 0.02) drawSprite(ctx, rimSprite(res), X, Y, ppu, 1, 1, 0, pv.hover * 0.9);
       }
     }
-    // --- plant
+    // --- plant (squashes and stretches when tapped)
     if (!pv.g || pv.stem < 0.005) return;
-    const gg = pv.g;
     const Ys = s.sy(w.z * SQ - SOIL_Y * HY);
+    const bounce = pv.tap > 0.01 ? Math.sin((1 - pv.tap) * Math.PI * 3) * pv.tap * 0.2 : 0;
+    const grow = 1 + pv.target * 0.1;
+    if (bounce || grow !== 1) {
+      ctx.save(); ctx.translate(X, Ys); ctx.scale((1 - bounce * 0.55) * grow, (1 + bounce) * grow); ctx.translate(-X, -Ys);
+      this._drawPlant(ctx, s, pv, time, X, Ys, w);
+      ctx.restore();
+    } else this._drawPlant(ctx, s, pv, time, X, Ys, w);
+  }
+
+  _drawPlant(ctx, s, pv, time, X, Ys, w) {
+    const g = this.garden, gg = pv.g, ppu = s.cam.ppu, res = s.res;
     const rain = g.s.weather.kind === 'rain' ? 1.8 : 1;
     const sway = (Math.sin(time * 1.3 + pv.seed * 6.2) * 0.035 * rain + Math.sin(time * 0.37 + w.x * 0.3) * 0.02) * (pv.stem / STEM_H) + pv.lean * pv.stem;
     const stemPx = pv.stem * HY * ppu;
@@ -398,6 +435,123 @@ export class GardenView {
     const k = buyable ? 0.82 : 1;
     const sway = this.world ? this.world.wind(w.x + e.dx, w.z + e.dz, e.kind, this.time) : 0;
     drawSprite(ctx, propSprite(e.kind, e, s.res), s.sx(w.x + e.dx), s.sy((w.z + e.dz) * SQ), s.cam.ppu * k, 1, 1, 0, 1, sway);
+  }
+
+  // ------------------------------------------------------------------------------------------ hud (on top of everything)
+  // growth rings on tapped plants, the pollen trail while the player carries pollen, crossing targets and rests
+  hud(ctx, s, time) {
+    const g = this.garden, ppu = s.cam.ppu;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < this.N; i++) {
+      const pv = this.pv[i], pl = g.plots[i].plant;
+      if (pv.ringT > 0 && pv.g) this._growRing(ctx, s, pv, pl);
+      if (pv.rest > 0.01 && !this.drag && g.resting(i) > 0) this._restClock(ctx, s, i, pv.rest);
+      // a species nobody has seen yet: a little "?" bobs over it until it blooms
+      if (pl && pl.stage === 'grow' && pv.stem > 0.05 && !g.s.book[speciesId(pl.g)]) this._mystery(ctx, s, i, pv, time);
+    }
+    const d = this.drag;
+    if (d && g.isBloom(d.from)) {
+      const p0 = this._headScreen(d.from);
+      // every other bloom shows whether it can take the pollen right now
+      for (let j = 0; j < this.N; j++) {
+        if (j === d.from || !g.isBloom(j) || this.pv[j].open < 0.6) continue;
+        if (g.resting(j) > 0) { this._restClock(ctx, s, j, 1); continue; }
+        const pj = this._headScreen(j), r = Math.max(20, 0.5 * this.pv[j].head * ppu);
+        const on = d.over === j && d.ok;
+        ctx.globalAlpha = on ? 1 : 0.55 + 0.3 * Math.sin(time * 6 + j);
+        ctx.strokeStyle = on ? '#fff6b0' : '#ffffff'; ctx.lineWidth = on ? 5 : 3;
+        ctx.setLineDash(on ? [] : [6, 7]); ctx.lineDashOffset = -time * 20;
+        ctx.beginPath(); ctx.ellipse(pj.x, pj.y, r * (on ? 1.15 : 1), r * 0.85 * (on ? 1.15 : 1), 0, 0, TAU); ctx.stroke();
+      }
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      // the source bloom glows gold and a sparkling trail follows the pointer (snapping to a valid target)
+      const r0 = Math.max(20, 0.5 * this.pv[d.from].head * ppu);
+      ctx.strokeStyle = 'rgba(255,214,80,0.9)'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(p0.x, p0.y, r0, r0 * 0.85, 0, 0, TAU); ctx.stroke();
+      let x1 = d.x, y1 = d.y;
+      if (d.ok && d.over >= 0) { const pb = this._headScreen(d.over); x1 = pb.x; y1 = pb.y; }
+      this._trail(ctx, p0.x, p0.y, x1, y1, time, 1);
+      const pr = 9 + Math.sin(time * 12) * 1.5;
+      ctx.fillStyle = 'rgba(255,220,90,0.35)'; ctx.beginPath(); ctx.arc(x1, y1, pr * 2, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#a8680a'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x1, y1, pr, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.arc(x1 - pr * 0.3, y1 - pr * 0.35, pr * 0.3, 0, TAU); ctx.fill();
+    }
+    // pollen zipping from one bloom to the other after a cross
+    for (const z of this.zips) {
+      const pa = this._headScreen(z.a), pb = this._headScreen(z.b);
+      const k = Math.min(1, z.t / 0.28);
+      if (k < 1) this._trail(ctx, pa.x, pa.y, pb.x, pb.y, time, 1 - k * 0.6, k);
+      else {
+        const f = (z.t - 0.28) / 0.32;
+        ctx.globalAlpha = Math.max(0, 1 - f); ctx.strokeStyle = '#fff3a0'; ctx.lineWidth = 4 * (1 - f) + 1;
+        ctx.beginPath(); ctx.ellipse(pb.x, pb.y, 16 + f * 50, (16 + f * 50) * 0.8, 0, 0, TAU); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  _headScreen(i) { const h = this.headPos(i); return this.project(h.x, h.y, h.z); }
+  _mystery(ctx, s, i, pv, time) {
+    const w = this.garden.pos[i];
+    const p = this.project(w.x, SOIL_Y + pv.stem + 0.2 * pv.head + 0.55, w.z);
+    const r = clamp(s.cam.ppu * 0.17, 9, 15), y = p.y + Math.sin(time * 2.6 + pv.seed * 5) * 3;
+    ctx.fillStyle = 'rgba(40,20,60,0.25)'; ctx.beginPath(); ctx.ellipse(p.x + 2, y + 3, r, r, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#8f5cf0'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(2, r * 0.22);
+    ctx.beginPath(); ctx.arc(p.x, y, r, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffffff'; ctx.font = `700 ${Math.round(r * 1.35)}px Fredoka, system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('?', p.x, y + r * 0.06);
+  }
+  // a curved, glowing pollen path between two screen points; upto < 1 draws only the leading part (a comet)
+  _trail(ctx, x0, y0, x1, y1, time, a = 1, upto = 1) {
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const mx = (x0 + x1) / 2, my = Math.min(y0, y1) - Math.max(24, dist * 0.28);
+    const pt = (t) => ({ x: (1 - t) * (1 - t) * x0 + 2 * (1 - t) * t * mx + t * t * x1, y: (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * my + t * t * y1 });
+    if (upto < 1) {
+      for (let k = 0; k < 7; k++) {
+        const t = upto - k * 0.045;
+        if (t < 0) break;
+        const p = pt(t), r = 8 - k;
+        ctx.globalAlpha = a * (1 - k / 7);
+        ctx.fillStyle = k ? '#ffe27a' : '#ffffff';
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+    ctx.globalAlpha = 0.35 * a; ctx.strokeStyle = '#ffd650'; ctx.lineWidth = 12;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1, y1); ctx.stroke();
+    ctx.globalAlpha = a; ctx.strokeStyle = '#ffd23a'; ctx.lineWidth = 6;
+    ctx.setLineDash([1, 13]); ctx.lineDashOffset = -time * 70;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1, y1); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+  }
+  // growth progress around the base of a tapped plant
+  _growRing(ctx, s, pv, pl) {
+    const w = this.garden.pos[pv.i], ppu = s.cam.ppu;
+    const k = pl ? (pl.stage === 'bloom' ? 1 : clamp(pl.t / pl.dur, 0, 1)) : pv.ringK;
+    const a = Math.min(1, pv.ringT / 0.45);
+    const cx = s.sx(w.x), cy = s.sy(w.z * SQ - SOIL_Y * HY) + 2;
+    const rx = Math.max(18, 0.6 * ppu), ry = rx * SQ;
+    ctx.globalAlpha = a;
+    ctx.lineWidth = Math.max(5, 0.1 * ppu); ctx.strokeStyle = 'rgba(58,34,14,0.6)';
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU); ctx.stroke();
+    ctx.lineWidth = Math.max(3, 0.065 * ppu); ctx.strokeStyle = k >= 1 ? '#ffe45c' : '#9af06a';
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0.02, k)); ctx.stroke();
+    const e = -Math.PI / 2 + TAU * k;
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(cx + Math.cos(e) * rx, cy + Math.sin(e) * ry, Math.max(2.5, 0.05 * ppu), 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // a small clock over a resting bloom (it was just crossed and needs a moment before it can be crossed again)
+  _restClock(ctx, s, i, a) {
+    const p = this._headScreen(i), pl = this.garden.plots[i].plant;
+    const left = this.garden.resting(i), k = 1 - left / 8;
+    const x = p.x + Math.max(14, 0.32 * s.cam.ppu), y = p.y - Math.max(16, 0.42 * s.cam.ppu), r = 9;
+    if (!pl) return;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = 'rgba(58,34,14,0.75)'; ctx.beginPath(); ctx.arc(x, y, r + 2.5, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(k, 0, 1)); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
   // magical blooms glow after dark (drawn additively after the colour grade)

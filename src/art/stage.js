@@ -255,5 +255,6 @@ export class Stage {
     for (const l of this.layers) l.overlay?.(ctx, this, time);
     for (const l of this.layers) l.glow?.(ctx, this, time);
     for (const l of this.layers) l.post?.(ctx, this, time);
+    for (const l of this.layers) l.hud?.(ctx, this, time);
   }
 }

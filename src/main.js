@@ -10,7 +10,9 @@ import { tickBanks } from './art/paint.js';
 import { Garden, newSave } from './game/garden.js';
 import { GardenView, mutColor } from './art/garden.js';
 import { UI, fmt } from './ui/ui.js';
-import { flowerSVG, seedSVG, icon } from './ui/icons.js';
+import { flowerSVG, seedSVG, icon, visitorSVG } from './ui/icons.js';
+import { SOIL_Y } from './art/planter.js';
+import { SQ } from './art/view3q.js';
 import { loadSave, saveSoon, flush, wipeSave, loadSettings, saveSettings } from './core/save.js';
 import { DEFAULT_SETTINGS, DEV } from './config.js';
 import { COLORS, SHAPES, C, S, M, MUTATIONS, flowerName, makeFlower, speciesId, rarity } from './game/genetics.js';
@@ -24,7 +26,9 @@ const TIPS = [
   'Red + Blue makes Purple. What does Purple + White make?',
   'Rainbows are rare — and so are rainbow flowers!',
   'Your garden keeps growing while you are away.',
-  'Swipe across blooms to harvest them all at once.',
+  'Drag pollen from one bloom to another to cross them.',
+  'Tap growing flowers to make them grow faster.',
+  'Harvest blooms quickly one after another for a combo!',
 ];
 
 function setLoading(p, tip) {
@@ -62,10 +66,7 @@ class Game {
     if (!save) save = newSave();
     save.stats.sessions = (save.stats.sessions || 0) + 1;
     this.garden = new Garden(save, (n, p) => this.onGame(n, p));
-    if (save.tutorial < 99) {
-      this.garden.tutorialSpeed = 3;
-      this.garden.forceChild = makeFlower(C.PURPLE, S.BLOSSOM);
-    }
+    if (save.tutorial < 99) this.garden.forceChild = makeFlower(C.PURPLE, S.BLOSSOM);    // the tutorial's first cross
     this.view = new GardenView(this.stage, this.garden, this.fx, QUALITY[this.qName]);
     this.view.nightK = () => this.world.weather.k.night;
     this.view.world = this.world;
@@ -206,6 +207,8 @@ class Game {
       resetSave: () => { wipeSave(); flush(); location.reload(); },
       onPanel: (open) => { if (open) sdk.gameplayStop(); else sdk.gameplayStart(); },
       onSelect: (i) => { self.view.highlightEmpty = self.ui.sel >= 0; self._tutorialEvent('select', { i }); },
+      skipTutorial: () => self._finishTutorial(true),
+      questHint: () => self._questHint(),
       onLayout: () => self._layoutSoon(),
     };
   }
@@ -237,12 +240,23 @@ class Game {
           ui.dirty.orders = true;
         } else {
           audio.play('pop', { step: this._harvestChain(), volume: 0.8, minGap: 0.01 });
-          ui.floatText(pt.x, pt.y - 10, `+${fmt(p.coins)}`, p.g.mut ? 'gold' : '');
+          ui.floatText(pt.x, pt.y - 10, `+${fmt(p.coins)}`, p.g.mut || p.combo > 1 ? 'gold' : '');
           ui.flyCoins(pt.x, pt.y, p.coins);
+        }
+        if (p.combo > 1) {
+          setTimeout(() => ui.floatText(pt.x, pt.y - 46, `Combo ×${p.combo}!`, p.combo >= 4 ? 'combo hot' : 'combo'), 60);
+          audio.play('combo', { step: Math.min(10, p.combo) });
+          if (p.combo >= 3) this.fx.sparkles(view.headPos(p.i).x, view.headPos(p.i).y, view.headPos(p.i).z, '#ffe45c', 4 + p.combo * 2, 0.6);
         }
         break;
       }
-      case 'seed': audio.play('pop', { step: 8, volume: 0.45 }); break;
+      case 'boost': audio.play('grow', { step: Math.min(12, p.taps - 1), minGap: 0.02 }); break;
+      case 'cross': audio.play('cross'); break;
+      case 'quest':
+        ui.questDone(p);
+        if (g.s.quest.i <= 4) this._questHintSoon(2200);
+        break;
+      case 'seed': audio.play(p.manual ? 'seedPop' : 'pop', p.manual ? {} : { step: 8, volume: 0.45 }); break;
       case 'seedCollected': {
         const o = view.orbScreen(p.id);
         if (o) ui.flySeed(o.x, o.y, g.s.book[speciesId(p.g)] ? flowerSVG(p.g, { size: 36 }) : seedSVG(p.g, 36));
@@ -368,7 +382,11 @@ class Game {
     audio.play('combo', { step: Math.min(4, tiers) });
     this.ui.bookBtn.classList.add('has-dot');
     if (tiers <= 2 && !g.pattern) {
-      ui.toast(`${flowerSVG(g, { size: 26 })} New species: <b>${flowerName(g, { withMut: false })}</b> · +${fmt(p.coins)}`, 'good', 2.6);
+      const i = this.garden.plots.findIndex((pl) => pl.plant && speciesId(pl.plant.g) === p.id);
+      if (this.garden.s.tutorial < 99 && i >= 0) {
+        const h = this.view.headPos(i), q = this.view.project(h.x, h.y + 0.6, h.z);
+        ui.floatText(q.x, q.y, `New: ${flowerName(g, { withMut: false })}!`, 'gold');
+      } else ui.toast(`${flowerSVG(g, { size: 26 })} New species: <b>${flowerName(g, { withMut: false })}</b> · +${fmt(p.coins)}`, 'good', 2.6);
       return;
     }
     const one = {
@@ -440,24 +458,34 @@ class Game {
   }
 
   // ------------------------------------------------------------------------------------------ input
+  // Garden gestures: tap soil to plant, tap a growing plant to make it grow, tap a bloom to harvest it, drag from a
+  // bloom onto another to cross them, drag the lawn to look around (pinch / wheel to zoom). Swipes keep planting,
+  // growing, watering or collecting along the way. Seeds can also be dragged straight out of the pouch.
   _input() {
     const cv = this.stage.canvas;
     const g = this.garden, ui = this.ui, view = this.view;
     let down = null;
     const pts = new Map();           // active pointers (for pinch zoom)
     let pinch = null;
+    const tut = () => g.s.tutorial < 99;
     const pos = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     const pinchState = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+    addEventListener('pointerdown', () => this._poke(), { capture: true });
     cv.addEventListener('pointerdown', (e) => {
       if (ui.busy) return;
       const p = pos(e);
       cv.setPointerCapture?.(e.pointerId);
       pts.set(e.pointerId, p);
-      if (pts.size === 2) { pinch = pinchState(); if (down) down.mode = 'pinch'; return; }
+      if (pts.size === 2) {
+        if (down?.mode === 'pollen') this._dropPollen(down, null);
+        if (tut()) return;
+        pinch = pinchState(); if (down) down.mode = 'pinch';
+        return;
+      }
       if (pts.size > 2) return;
       down = { x: p.x, y: p.y, lx: p.x, ly: p.y, moved: false, mode: null, done: new Set(), t: performance.now() };
       // taps on empty lawn start a pan; anything else is a garden action (and swipes continue it)
-      if (!this._tapAt(p.x, p.y, down) && !down.mode) down.mode = 'pan';
+      if (!this._tapAt(p.x, p.y, down) && !down.mode && !tut()) down.mode = 'pan';
     });
     cv.addEventListener('pointermove', (e) => {
       const p = pos(e);
@@ -471,24 +499,29 @@ class Game {
       }
       if (!down) {
         // hover is resolved once per frame in _frame (pointermove can fire far more often than we draw)
-        if (e.pointerType === 'mouse' && !ui.busy) this._hover = p;
-        else { this._hover = null; ui.hoverInfo(0, 0, null); }
+        if (e.pointerType === 'mouse' && !ui.busy) this._hover = this._mouse = p;
+        else { this._hover = this._mouse = null; ui.hoverInfo(0, 0, null); }
         return;
       }
-      if (Math.hypot(p.x - down.x, p.y - down.y) > 6) down.moved = true;
+      if (Math.hypot(p.x - down.x, p.y - down.y) > (e.pointerType === 'mouse' ? 6 : 10)) down.moved = true;
       if (down.mode === 'buy' && down.moved) down.mode = 'pan';
+      if (down.mode === 'bloom' && down.moved) this._pickPollen(down, p);
+      if (down.mode === 'pollen') { this._carryPollen(p); return; }
       if (down.mode === 'pan') {
         if (down.moved) { view.panBy(p.x - down.lx, p.y - down.ly); cv.style.cursor = 'grabbing'; }
         down.lx = p.x; down.ly = p.y;
         return;
       }
-      // swipe: keep harvesting / planting / collecting along the path
       if (down.mode && down.mode !== 'pinch') this._swipeAt(p.x, p.y, down);
     });
     const end = (e) => {
-      if (e.type === 'pointerup' && down && down.mode === 'buy' && !down.moved && pts.size === 1) {
-        const p = pos(e), i = view.pickPlot(p.x, p.y);
-        if (i === down.buy) this._buyPlot(i, ui.plotTags.get(i));
+      if (down && pts.size === 1 && pts.has(e.pointerId)) {
+        const p = pos(e), up = e.type === 'pointerup';
+        if (down.mode === 'buy' && !down.moved && up) {
+          const i = view.pickPlot(p.x, p.y);
+          if (i === down.buy) this._buyPlot(i, ui.plotTags.get(i));
+        } else if (down.mode === 'bloom' && up) this._harvestTap(down.i);
+        else if (down.mode === 'pollen') this._dropPollen(down, up ? p : null);
       }
       pts.delete(e.pointerId);
       if (pts.size < 2) pinch = null;
@@ -496,8 +529,8 @@ class Game {
     };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
-    cv.addEventListener('wheel', (e) => { if (!ui.busy) { const p = pos(e); view.zoomAt(Math.exp(-Math.max(-120, Math.min(120, e.deltaY)) * 0.0022), p.x, p.y); } }, { passive: true });
-    cv.addEventListener('pointerleave', () => { this._hover = null; view.hoverPlot = -1; ui.hoverInfo(0, 0, null); });
+    cv.addEventListener('wheel', (e) => { if (!ui.busy && !tut()) { const p = pos(e); view.zoomAt(Math.exp(-Math.max(-120, Math.min(120, e.deltaY)) * 0.0022), p.x, p.y); } }, { passive: true });
+    cv.addEventListener('pointerleave', () => { this._hover = this._mouse = null; view.hoverPlot = -1; ui.hoverInfo(0, 0, null); });
     // keyboard shortcuts (desktop)
     addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -505,23 +538,35 @@ class Game {
       if (ui.busy) return;
       const n = parseInt(e.key, 10);
       if (n >= 1 && n <= 9 && g.s.pouch[n - 1]) ui.selectSeed(ui.sel === n - 1 ? -1 : n - 1);
+      else if (tut()) return;
       else if (e.code === 'KeyW') ui.setTool(ui.tool === 'water' ? '' : 'water');
       else if (e.code === 'KeyD') ui.setTool(ui.tool === 'dig' ? '' : 'dig');
       else if (e.code === 'KeyB') ui.openBook();
       else if (e.code === 'KeyS') ui.openShop();
     });
+    this._tutGate();
+    this._pouchDrag();
   }
+
+  // any input: hints go away, idle help starts counting again
+  _poke() { this._lastInput = this.time || 0; if (this.hint) { this.hint = null; this.ui.tutFrame(null); } }
 
   _tapAt(x, y, down) {
     const g = this.garden, ui = this.ui, view = this.view;
+    const tk = this._tutKey();
+    // a golden bee beats everything else under the finger
+    const gb = view.golden;
+    if (gb.on && !gb.caught) {
+      const q = gb.screen(this.stage);
+      if (Math.hypot(q.x - x, q.y - y) < Math.max(52, this.stage.cam.ppu * 0.75)) { this._catchGolden(); down.mode = 'none'; return true; }
+    }
     const seedId = view.pickSeed(x, y);
     if (seedId != null) { g.collectSeed(seedId); down.mode = 'collect'; return true; }
     const i = view.pickPlot(x, y);
     if (i < 0) return false;
     const plot = g.plots[i], pl = plot.plant;
-    const tut = g.s.tutorial < 99 ? TUT[g.s.tutorial]?.key : null;
     // plots are bought on a clean tap (released without dragging), so looking around never spends coins
-    if (!plot.owned) { if (g.canBuyPlot(i) && g.s.tutorial >= 99) { down.mode = 'buy'; down.buy = i; return true; } return false; }
+    if (!plot.owned) { if (g.canBuyPlot(i) && !tk) { down.mode = 'buy'; down.buy = i; return true; } return false; }
     if (ui.tool === 'water') {
       if (pl && pl.stage === 'grow') { if (!g.water(i)) { audio.play('invalid'); ui.toast('The watering can is empty — it refills by itself', 'warn'); } }
       else audio.play('invalid');
@@ -532,24 +577,77 @@ class Game {
       if (pl) g.dig(i); else audio.play('invalid');
       return true;
     }
-    if (pl && pl.stage === 'bloom') {
-      if (tut && tut !== 'harvest') { ui.toast('Let the bees visit your blooms first!', ''); return true; }
-      g.harvest(i); down.mode = 'harvest'; down.done.add(i);
-      return true;
-    }
+    // blooms wait for the release: a tap harvests, a drag carries pollen to another bloom
+    if (pl && pl.stage === 'bloom') { down.mode = 'bloom'; down.i = i; return true; }
     if (!pl) {
-      if (tut === 'plant2' && !g.nb[i].some((j) => g.plots[j].plant)) { audio.play('invalid'); ui.toast(`${icon('bee')} Plant it right <b>next to</b> your first flower!`, ''); return true; }
-      if (ui.sel >= 0) { this._plantAt(i); down.mode = tut ? null : 'plant'; down.done.add(i); }
-      else if (g.s.pouch.length) { audio.play('invalid'); ui.toast(`${icon('seed')} Pick a seed from your pouch first`, ''); ui.pouchEl.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 350 }); }
+      if (tk && !tk.startsWith('plant')) { this._tutWrong(); return true; }
+      if (ui.sel >= 0) { this._plantAt(i); down.mode = tk ? 'none' : 'plant'; down.done.add(i); }
+      else if (g.s.pouch.length) { audio.play('invalid'); if (tk) this._tutWrong(); else ui.toast(`${icon('seed')} Pick a seed from your pouch first`, ''); ui.pouchEl.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 350 }); }
       else ui.toast(`${icon('basket')} No seeds — buy some in the shop!`, '');
       return true;
     }
-    // growing plant: show what it is and when it blooms
-    const left = (pl.dur - pl.t) / g.speedNow();
-    const known = !!g.s.book[speciesId(pl.g)];
-    ui.toast(`${known ? flowerSVG(pl.g, { size: 26 }) : seedSVG(pl.g, 26)} ${known ? flowerName(pl.g) : 'Mystery hybrid'} · blooms in ${Math.ceil(left)}s${g.has('can') && g.s.can.charges ? ' — water it to speed up!' : ''}`, '', 2);
-    audio.play('toggle');
+    // a growing plant: every tap makes it grow (swipe across several to grow them all)
+    g.boost(i);
+    down.mode = 'boost'; down.done.add(i);
     return true;
+  }
+
+  _harvestTap(i) {
+    const g = this.garden;
+    if (!g.isBloom(i)) return;
+    const tk = this._tutKey();
+    if (tk && tk !== 'harvest') { this._tutWrong(tk === 'cross' ? 'Hold and <b>drag</b> to the other flower!' : null); return; }
+    g.harvest(i);
+  }
+
+  // pollen: picked up by dragging away from a bloom, carried to another bloom, dropped to cross them
+  _pickPollen(down, p) {
+    const g = this.garden, i = down.i;
+    down.mode = 'none';
+    if (!g.isBloom(i)) return;
+    const tk = this._tutKey();
+    if (tk && tk !== 'cross') { this._tutWrong(); return; }
+    if (g.resting(i) > 0) { this.view.pv[i].rest = 1; this._restingHint(); return; }
+    down.mode = 'pollen';
+    this.view.drag = { from: i, x: p.x, y: p.y, over: -1, ok: false };
+    this.view.pv[i].tap = 0.6;
+    const h = this.view.headPos(i);
+    this.fx.pollen(h.x, h.y + 0.1, h.z, 6);
+    audio.play('pollen');
+  }
+  _carryPollen(p) {
+    const d = this.view.drag;
+    if (!d) return;
+    d.x = p.x; d.y = p.y;
+    const j = this.view.pickPlot(p.x, p.y);
+    const over = j >= 0 && j !== d.from && this.garden.isBloom(j) ? j : -1;
+    if (over !== d.over) {
+      d.over = over;
+      d.ok = over >= 0 && this.garden.canCross(d.from, over);
+      if (d.ok) audio.play('toggle', { pitch: 1.35, volume: 0.45 });
+    }
+  }
+  _dropPollen(down, p) {
+    const d = this.view.drag;
+    this.view.drag = null;
+    if (down) down.mode = 'none';
+    if (!d || !p) return;                    // cancelled (a second finger, pointercancel)
+    const g = this.garden;
+    if (d.ok && d.over >= 0 && g.canCross(d.from, d.over)) { g.cross(d.from, d.over); return; }
+    // barely moved and let go on the same flower: that was a tap
+    if (this.view.pickPlot(p.x, p.y) === d.from && Math.hypot(p.x - down.x, p.y - down.y) < 28) { this._harvestTap(d.from); return; }
+    audio.play('invalid', { volume: 0.5 });
+    const w = this.stage.unproject(p.x, p.y, 0.8);
+    this.fx.pollen(w.x, 0.8, w.z, 6);
+    if (d.over >= 0 && g.resting(d.over) > 0) { this.view.pv[d.over].rest = 1; this._restingHint(); }
+    else if (this._tutKey()) this._tutSay('Let go <b>on the blue flower</b>!');
+    else if (!this._dropHintT || this.time - this._dropHintT > 20) { this._dropHintT = this.time; this.ui.toast(`${icon('bee')} Drop the pollen on another bloom to cross them`, ''); }
+  }
+  _restingHint() {
+    audio.play('invalid', { volume: 0.4 });
+    if (this._restHintT && this.time - this._restHintT < 15) return;
+    this._restHintT = this.time;
+    this.ui.toast(`${icon('bee')} Crossed flowers rest for a few seconds`, '');
   }
 
   // one-line description of a plot for the desktop hover tooltip
@@ -561,24 +659,22 @@ class Game {
     if (!pl) return this.ui.sel >= 0 ? `${icon('seed', 16)} Plant here` : null;
     const known = !!g.s.book[speciesId(pl.g)];
     const name = known || pl.stage === 'bloom' ? flowerName(pl.g) : 'Mystery hybrid';
-    if (pl.stage === 'bloom') return `${flowerSVG(pl.g, { size: 20 })} <b>${name}</b> · harvest +${fmt(g.sellValue(pl.g))}`;
-    return `${known ? flowerSVG(pl.g, { size: 20 }) : seedSVG(pl.g, 20)} ${name} · blooms in ${Math.ceil((pl.dur - pl.t) / g.speedNow())}s`;
+    if (pl.stage === 'bloom') {
+      const rest = g.resting(i);
+      return `${flowerSVG(pl.g, { size: 20 })} <b>${name}</b> · ${icon('coin', 16)}${fmt(g.sellValue(pl.g))} · ${rest > 0 ? `resting ${Math.ceil(rest)}s` : 'drag to cross'}`;
+    }
+    return `${known ? flowerSVG(pl.g, { size: 20 }) : seedSVG(pl.g, 20)} ${name} · blooms in ${Math.ceil((pl.dur - pl.t) / g.speedNow())}s · tap to grow`;
   }
 
   _swipeAt(x, y, down) {
     const g = this.garden, view = this.view;
-    if (down.mode === 'harvest' || down.mode === 'collect') {
-      const seedId = view.pickSeed(x, y);
-      if (seedId != null) g.collectSeed(seedId);
-      const i = view.pickPlot(x, y);
-      if (i >= 0 && !down.done.has(i) && g.isBloom(i) && !(g.s.tutorial < 99 && TUT[g.s.tutorial]?.key !== 'harvest')) { down.done.add(i); g.harvest(i); }
-    } else if (down.mode === 'plant') {
-      const i = view.pickPlot(x, y);
-      if (i >= 0 && !down.done.has(i) && g.plots[i].owned && !g.plots[i].plant && this.ui.sel >= 0) { down.done.add(i); this._plantAt(i); }
-    } else if (down.mode === 'water') {
-      const i = view.pickPlot(x, y);
-      if (i >= 0 && !down.done.has(i) && g.plots[i].plant?.stage === 'grow' && g.s.can.charges > 0) { down.done.add(i); g.water(i); }
-    }
+    if (down.mode === 'collect') { const seedId = view.pickSeed(x, y); if (seedId != null) g.collectSeed(seedId); return; }
+    const i = view.pickPlot(x, y);
+    if (i < 0 || down.done.has(i)) return;
+    const pl = g.plots[i].plant;
+    if (down.mode === 'plant') { if (g.plots[i].owned && !pl && this.ui.sel >= 0) { down.done.add(i); this._plantAt(i); } }
+    else if (down.mode === 'water') { if (pl?.stage === 'grow' && g.s.can.charges > 0) { down.done.add(i); g.water(i); } }
+    else if (down.mode === 'boost') { if (pl?.stage === 'grow') { down.done.add(i); g.boost(i); } }
   }
 
   _plantAt(i) {
@@ -589,6 +685,55 @@ class Game {
     g.plant(i, ui.sel);
     if (last) { ui.sel = -1; this.view.highlightEmpty = false; }
     ui.dirty.pouch = true;
+  }
+
+  // drag a seed straight out of the pouch onto the soil (tapping the seed, then the soil, works too)
+  _pouchDrag() {
+    const ui = this.ui, list = ui.pouchList, cv = this.stage.canvas;
+    let pd = null;
+    const cpos = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    list.addEventListener('pointerdown', (e) => {
+      const chip = e.target.closest?.('.seedchip');
+      if (!chip || ui.busy || e.button > 0) return;
+      pd = { id: e.pointerId, chip, idx: [...list.querySelectorAll('.seedchip')].indexOf(chip), x: e.clientX, y: e.clientY, on: false, ghost: null };
+    });
+    addEventListener('pointermove', (e) => {
+      if (!pd || e.pointerId !== pd.id) return;
+      const dx = e.clientX - pd.x, dy = e.clientY - pd.y;
+      if (!pd.on) {
+        if (dy < -12 && -dy > Math.abs(dx) * 0.7 && this.garden.s.pouch[pd.idx]) {
+          pd.on = true;
+          pd.chip.dispatchEvent(new PointerEvent('pointerleave'));       // cancels the chip's long-press
+          if (ui.sel !== pd.idx) ui.selectSeed(pd.idx);
+          const img = pd.chip.querySelector('img');
+          pd.ghost = ui.dragGhost(img ? img.outerHTML : '');
+          pd.chip.classList.add('dragging');
+        } else if (Math.hypot(dx, dy) > 12) { pd = null; return; }    // sideways: the pouch scrolls instead
+        else return;
+      }
+      pd.ghost.style.transform = `translate(${e.clientX - 24}px, ${e.clientY - 44}px)`;
+      const p = cpos(e), i = this.view.pickPlot(p.x, p.y), g = this.garden;
+      this.view.hoverPlot = i >= 0 && g.plots[i].owned && !g.plots[i].plant ? i : -1;
+    });
+    const up = (e) => {
+      if (!pd || e.pointerId !== pd.id) return;
+      const d = pd;
+      pd = null;
+      if (!d.on) return;
+      d.ghost?.remove(); d.chip.classList.remove('dragging');
+      this._noClickUntil = performance.now() + 350;
+      this.view.hoverPlot = -1;
+      if (e.type !== 'pointerup' || ui.busy) return;
+      const p = cpos(e), i = this.view.pickPlot(p.x, p.y), g = this.garden;
+      if (i >= 0 && g.plots[i].owned && !g.plots[i].plant) {
+        const tk = this._tutKey();
+        if (tk && !tk.startsWith('plant')) { this._tutWrong(); return; }
+        this._plantAt(i);
+      } else if (i >= 0 && g.plots[i].owned) { audio.play('invalid'); ui.toast('That spot is taken — drop the seed on empty soil', ''); }
+    };
+    addEventListener('pointerup', up);
+    addEventListener('pointercancel', up);
+    list.addEventListener('click', (e) => { if (performance.now() < (this._noClickUntil || 0)) { e.stopPropagation(); e.preventDefault(); } }, { capture: true });
   }
 
   // CrazyGames "common fixes": no page scroll from wheel / arrows / space, no context menu
@@ -615,50 +760,243 @@ class Game {
   }
 
   // ------------------------------------------------------------------------------------------ tutorial
+  // A spotlight walks a new player through one small action at a time (see TUT at the bottom): plant, tap to grow,
+  // cross two blooms by hand, collect the seed, grow a brand-new species, harvest a combo. Everything outside the
+  // spotlight waits, wrong taps get a friendly nudge, and every step has a way forward so nobody gets stuck.
+  _tutStep() { const s = this.garden.s; return s.tutorial < 99 ? TUT[s.tutorial] || null : null; }
+  _tutKey() { return this._tutStep()?.key || null; }
   _tutorial() {
     const s = this.garden.s;
     this.ui.holdCards(s.tutorial < 99);
-    if (s.tutorial >= 99) { this.ui.setTutorial(null); this.garden.tutorialSpeed = 1; return; }
+    if (s.tutorial >= 99) { this.ui.tutFrame(null); this.garden.tutorialSpeed = 1; return; }
     const step = TUT[s.tutorial];
-    if (!step) { this._finishTutorial(); return; }
-    this.ui.setTutorial({ key: step.key, text: step.text, target: step.target ? step.target(this) : null });
+    if (!step) { if (!this._finishing) { this._finishing = true; this.ui.tutFrame(null); setTimeout(() => this._finishTutorial(), 900); } return; }
+    this.tutT = 0; this.tutN = 0; this._tutSayT = 0;
+    this.garden.tutBees = false;
+  }
+  _tutNext() {
+    this.garden.s.tutorial++;
+    audio.play('tutStep');
+    this._tutorial();
+    saveSoon(this.garden.s);
   }
   _tutorialEvent(name, p) {
-    const s = this.garden.s;
-    if (s.tutorial >= 99) return;
-    const step = TUT[s.tutorial];
-    if (step?.done && step.done(this, name, p)) { s.tutorial++; this._tutorial(); }
+    const step = this._tutStep();
+    if (step?.done && step.done(this, name, p)) this._tutNext();
   }
-  _tutorialTick() {
-    const s = this.garden.s;
-    if (s.tutorial >= 99) return;
-    const step = TUT[s.tutorial];
-    if (step?.check && step.check(this)) { s.tutorial++; this._tutorial(); return; }
-    // keep pointer targets fresh (plots move while the camera eases)
-    if (step?.target) this.ui.tutStep = { key: step.key, text: step.text, target: step.target(this) };
+  _tutorialTick(dt = 0.05) {
+    const step = this._tutStep();
+    if (!step) { this._hintTick(); return; }
+    this.tutT += dt;
+    if (step.check?.(this)) { this._tutNext(); return; }
+    step.keep?.(this);
+    const text = this._tutSayT > this.time ? this._tutSayTxt : typeof step.text === 'function' ? step.text(this) : step.text;
+    if (!text) { this.ui.tutFrame(null); return; }
+    const sp = step.spec?.(this) || { hand: null, holes: [] };
+    this.ui.tutFrame({ key: step.key, text, dim: true, skip: true, ...sp });
   }
-  _finishTutorial() {
-    const s = this.garden.s;
+  // a wrong move while the tutorial waits for something specific
+  _tutWrong(msg) {
+    audio.play('invalid', { volume: 0.45 });
+    this.ui.tutNudge();
+    if (msg) this._tutSay(msg);
+  }
+  _tutSay(html, secs = 2.6) { this._tutSayTxt = html; this._tutSayT = this.time + secs; }
+  // block everything outside the current step's spotlight (buttons, panels, the camera) until the step is done
+  _tutGate() {
+    const block = (e) => {
+      const step = this._tutStep();
+      if (!step || this.ui.cardOpen || this.ui.panel) return;
+      const t = e.target;
+      if (t.closest?.('.tut-bubble, .modal-layer')) return;
+      const gate = step.gate || [];
+      if (t === this.stage.canvas && gate.includes('garden')) return;
+      if (t.closest?.('.pouch') && gate.includes('pouch')) return;
+      e.stopPropagation(); e.preventDefault();
+      if (e.type === 'pointerdown') this._tutWrong();
+    };
+    for (const type of ['pointerdown', 'click']) addEventListener(type, block, { capture: true });
+  }
+  _finishTutorial(skipped = false) {
+    const g = this.garden, s = g.s;
     if (s.tutorial >= 99) return;
     s.tutorial = 99;
-    this.garden.tutorialSpeed = 1;
-    this.ui.setTutorial(null);
-    this.ui.holdCards(false);
+    this._finishing = false;
+    g.tutorialSpeed = 1; g.tutBees = false; g.forceChild = null;
+    this.ui.tutFrame(null);
     s.weather.until = s.t + 90;
-    this.garden.addXp(0);
+    g.earn(60);
+    g.startQuests();
+    this.goldenT = 45;
+    // new gardeners start their daily streak tomorrow (no gift card on top of everything else today)
+    if (!s.daily.last) s.daily.last = todayStr();
     this.ui.showCard({
-      kicker: 'Your garden awaits!', hero: flowerSVG({ c1: C.PURPLE, shape: S.BLOSSOM, pattern: 0, mut: 0 }, { size: 120 }),
+      now: true, kicker: skipped ? 'Welcome, gardener!' : 'You did it!', hero: visitorSVG('queen', '#ffc928', 120),
+      title: 'You\'re a natural gardener!',
       list: [
-        `${icon('book', 18)} Discover all <b>128 species</b> for your Flower Book`,
-        `${icon('bee', 18)} Plant different colours side by side`,
-        `${icon('basket', 18)} Buy new plots with coins`,
-        `${icon('rainbow', 18)} Watch the weather for rare mutations`,
+        `${icon('bee', 18)} Drag pollen between blooms to breed new flowers`,
+        `${icon('book', 18)} Discover all <b>128 species</b>`,
+        `${icon('basket', 18)} Harvest fast for <b>combo</b> coins`,
+        `${icon('gift', 18)} Finish quests for rewards`,
       ],
-      buttons: [{ label: 'Let\'s grow!' }],
+      reward: `${icon('coin')} +60`,
+      buttons: [{ label: 'Let\'s grow!', act: () => this._questHintSoon(700) }],
     });
-    this.garden.claimDaily(todayStr(), yesterdayStr());
+    this.ui.holdCards(false);
+    g.addXp(0);
+    this.ui.dirty.pouch = this.ui.dirty.orders = true;
     saveSoon(s);
     this._layoutSoon();
+  }
+  // where the tutorial wants things: red in the middle, blue beside it, the hybrid next to both (front row first)
+  _plantedIdx(c1) { return this.garden.plots.findIndex((p) => p.plant && p.plant.g.c1 === c1); }
+  _tutPlot(kind) {
+    const g = this.garden, empty = (j) => g.plots[j].owned && !g.plots[j].plant;
+    const center = g.byKey.get('0,0');
+    const any = () => g.plots.findIndex((p, j) => empty(j));
+    if (kind === 'red') return empty(center) ? center : any();
+    const red = this._plantedIdx(C.RED), base = red >= 0 ? red : center;
+    if (kind === 'blue') {
+      const nb = g.nb[base].filter(empty).sort((a, b) => (g.pos[b].x + 0.3 * g.pos[b].z) - (g.pos[a].x + 0.3 * g.pos[a].z));
+      return nb.length ? nb[0] : any();
+    }
+    const blue = this._plantedIdx(C.BLUE);
+    const both = g.nb[base].filter((j) => empty(j) && blue >= 0 && g.nb[blue].includes(j)).sort((a, b) => g.pos[b].z - g.pos[a].z);
+    return both.length ? both[0] : any();
+  }
+  // tutorial seeds can't run out: if one went missing, it's back in the pouch
+  _tutSeed(c1) {
+    const g = this.garden;
+    if (this._plantedIdx(c1) < 0 && !g.s.pouch.some((e) => e.g.c1 === c1)) { g.addSeed(makeFlower(c1, S.BLOSSOM)); this.ui.dirty.pouch = true; }
+  }
+  // spotlight specs (screen pixels)
+  _scr(i, y) { const w = this.garden.pos[i]; return this.view.project(w.x, y, w.z); }
+  _chipSpot(k = 0) {
+    const c = this.ui.pouchList.querySelectorAll('.seedchip')[k];
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    return r.width ? { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width * 0.7 } : null;
+  }
+  _soilSpot(i) { const p = this._scr(i, SOIL_Y); return { x: p.x, y: p.y, r: Math.max(34, this.stage.cam.ppu * 0.78) }; }
+  _headSpot(i) { const h = this.view.headPos(i), p = this.view.project(h.x, h.y, h.z); return { x: p.x, y: p.y, r: Math.max(32, this.stage.cam.ppu * 0.55) }; }
+  _plantSpec(i, k = 0) {
+    if (i < 0) return null;
+    const chip = this._chipSpot(k), soil = this._soilSpot(i);
+    const e = this.garden.s.pouch[k];
+    if (this.ui.sel < 0 && chip && e) {
+      const ghost = this.garden.s.book[speciesId(e.g)] ? flowerSVG(e.g, { size: 44 }) : seedSVG(e.g, 44);
+      return { hand: { drag: { x0: chip.x, y0: chip.y, x1: soil.x, y1: soil.y }, ghost }, holes: [chip, soil] };
+    }
+    return { hand: { tap: soil }, holes: chip ? [soil, chip] : [soil] };
+  }
+  _growSpec(i) {
+    if (i < 0) return null;
+    const pv = this.view.pv[i];
+    const p = this._scr(i, SOIL_Y + pv.stem * 0.55 + 0.12);
+    return { hand: { tap: p }, holes: [{ x: p.x, y: p.y - 4, r: Math.max(40, this.stage.cam.ppu * 0.8) }] };
+  }
+  _crossSpec(a, b) {
+    if (a < 0 || b < 0) return null;
+    const A = this._headSpot(a), B = this._headSpot(b);
+    return { hand: { drag: { x0: A.x, y0: A.y, x1: B.x, y1: B.y }, ghost: '<div class="pollen-ball"></div>' }, holes: [A, B] };
+  }
+  _orbSpec() {
+    const id = [...this.view.orbs.keys()].find((k) => !this.view.orbs.get(k).leaving);
+    if (id == null) return null;
+    const p = this.view.orbScreen(id);
+    return { hand: { tap: p }, holes: [{ x: p.x, y: p.y, r: 38 }] };
+  }
+  _bloomsSpec() {
+    const blooms = this.garden.plots.map((p, i) => i).filter((i) => this.garden.isBloom(i));
+    if (!blooms.length) return null;
+    const k = Math.floor((this.time || 0) * 1.6) % blooms.length;
+    return { hand: { tap: this._headSpot(blooms[k]) }, holes: blooms.map((i) => this._headSpot(i)) };
+  }
+
+  // ------------------------------------------------------------------------------------------ quest hints
+  // Tapping the quest chip (or standing still for a while as a new player) shows where to do the current quest.
+  _questHintSoon(ms) { clearTimeout(this._qhT); this._qhT = setTimeout(() => this._questHint(), ms); }
+  _questHint(tries = 0) {
+    const q = this.garden.currentQuest();
+    if (!q) return;
+    if (this.ui.busy) { if (tries < 20) this._qhT = setTimeout(() => this._questHint(tries + 1), 700); return; }
+    this._hintN = (this._hintN || 0) + 1;
+    this.hint = { key: `hint${this._hintN}`, kind: q.hint, until: (this.time || 0) + 5 };
+    this._lastHint = this.time || 0;
+  }
+  _hintTick() {
+    const g = this.garden;
+    if (this.hint && (this.time > this.hint.until || this.ui.busy)) { this.hint = null; this.ui.tutFrame(null); }
+    // new gardeners who stand still for a while get shown what to do next
+    if (!this.hint && g.s.level <= 5 && !this.ui.busy && !this.view.drag && this.time - (this._lastInput || 0) > 12 && this.time - (this._lastHint || 0) > 30) this._questHint();
+    if (!this.hint) return;
+    const h = this._hintSpec(this.hint.kind);
+    if (!h) { this.hint = null; this.ui.tutFrame(null); return; }
+    this.ui.tutFrame({ key: this.hint.key, text: h.text, soft: true, hand: h.hand || null, holes: [] });
+  }
+  _hintSpec(kind) {
+    const g = this.garden, ui = this.ui;
+    const at = (el) => { const r = el?.getBoundingClientRect(); return r && r.width ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; };
+    const emptyPlot = () => g.plots.findIndex((p) => p.owned && !p.plant);
+    const growing = () => g.plots.findIndex((p) => p.plant && p.plant.stage === 'grow');
+    const pair = () => {
+      const bl = g.plots.map((p, i) => i).filter((i) => g.isBloom(i) && g.resting(i) <= 0);
+      for (const a of bl) for (const b of bl) if (a !== b && g.nb[a].includes(b)) return [a, b];
+      return bl.length >= 2 ? [bl[0], bl[1]] : null;
+    };
+    const plant = () => {
+      const i = emptyPlot();
+      if (!g.s.pouch.length) return { text: 'Buy seeds in the <b>shop</b>', hand: { tap: at(ui.shopBtn) } };
+      if (i < 0) return { text: 'Buy more land for new flowers', hand: null };
+      const sp = this._plantSpec(i);
+      return { text: 'Drag a seed onto empty soil', hand: sp?.hand };
+    };
+    const grow = () => { const i = growing(); return i >= 0 ? { text: 'Tap growing flowers to make them <b>bloom</b>', hand: this._growSpec(i).hand } : plant(); };
+    switch (kind) {
+      case 'plot': {
+        const cost = g.nextPlotCost();
+        if (g.s.coins < cost) return { text: `Harvest flowers to earn ${fmt(cost)} coins for new land`, hand: this._bloomsSpec()?.hand || null };
+        let best = null;
+        for (const [i, tag] of ui.plotTags) { if (g.canBuyPlot(i) && tag.isConnected) { const p = at(tag); if (p && (!best || Math.abs(p.x - innerWidth / 2) < Math.abs(best.x - innerWidth / 2))) best = p; } }
+        return { text: 'Tap a <b>price tag</b> to buy new land', hand: best ? { tap: best } : null };
+      }
+      case 'plant': return plant();
+      case 'grow': return grow();
+      case 'cross': { const pr = pair(); return pr ? { text: 'Drag from one bloom onto another to <b>cross</b> them', hand: this._crossSpec(pr[0], pr[1]).hand } : grow(); }
+      case 'harvest': { const b = this._bloomsSpec(); return b ? { text: 'Tap blooms quickly one after another', hand: b.hand } : grow(); }
+      case 'order': { const o = ui.ordersEl.querySelector('.order'); return { text: 'Grow the flower a visitor asks for, then harvest it', hand: o ? { tap: at(o) } : null }; }
+      case 'water': return g.has('can') ? { text: 'Tap the <b>watering can</b>, then a growing flower', hand: { tap: at(ui.canBtn) } } : grow();
+      case 'shop': return { text: 'Open the <b>shop</b>', hand: { tap: at(ui.shopBtn) } };
+      case 'golden': return { text: 'Golden bees visit now and then — tap one!', hand: null };
+      default: return null;
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------ golden bee
+  _goldenTick(dt) {
+    const g = this.garden, gb = this.view.golden;
+    if (g.s.tutorial < 99) return;
+    if (gb.on) { if (gb.done) gb.stop(); return; }
+    if (this.ui.busy) return;
+    this.goldenT = (this.goldenT ?? 60) - dt;
+    if (this.goldenT > 0) return;
+    this.goldenT = 75 + Math.random() * 75;
+    const st = this.stage, cx = st.cam.x, cz = st.cam.y / SQ;
+    const span = st.vw / st.cam.ppu / 2 + 1.2, left = Math.random() < 0.5;
+    const z0 = cz - 1.5 + Math.random() * 2, z1 = cz - 1.5 + Math.random() * 2;
+    gb.start({ x: cx + (left ? -span : span), z: z0 }, { x: cx + (left ? span : -span), z: z1 }, 11);
+    audio.play('golden');
+    if ((g.s.stats.goldenSeen || 0) < 2) { g.s.stats.goldenSeen = (g.s.stats.goldenSeen || 0) + 1; this.ui.toast(`${icon('bee')} A <b>golden bee</b>! Tap it quickly!`, 'gold', 3); }
+  }
+  _catchGolden() {
+    const gb = this.view.golden, p = gb.screen(this.stage);
+    gb.catch();
+    const coins = this.garden.catchGolden();
+    this.ui.floatText(p.x, p.y - 24, `+${fmt(coins)}`, 'gold big');
+    this.ui.flyCoins(p.x, p.y, coins * 4);
+    audio.play('goldenCatch');
+    this.stage.cam.shake = 0.25;
+    if (!this._goldenHappy) { this._goldenHappy = true; sdk.happytime(); }
   }
 
   // ------------------------------------------------------------------------------------------ quality
@@ -693,17 +1031,20 @@ class Game {
   }
 
   _hoverTick() {
+    // re-check the spot under a resting mouse now and then (plants grow, bloom and get harvested under it)
+    if (!this._hover && this._mouse && this.time - (this._hoverT || 0) > 0.3) this._hover = this._mouse;
     const p = this._hover;
     if (!p) return;
     this._hover = null;
+    this._hoverT = this.time;
     const g = this.garden, ui = this.ui, view = this.view, cv = this.stage.canvas;
-    if (ui.busy) { ui.hoverInfo(0, 0, null); return; }
+    if (ui.busy || view.drag) { ui.hoverInfo(0, 0, null); return; }
     const i = view.pickPlot(p.x, p.y);
     view.hoverPlot = i;
     const seedHit = view.pickSeed(p.x, p.y) != null;
     const cur = seedHit || (i >= 0 && (g.plots[i].owned || g.canBuyPlot(i))) ? 'pointer' : 'grab';
     if (this._cursor !== cur) { this._cursor = cur; cv.style.cursor = cur; }
-    ui.hoverInfo(p.x, p.y, seedHit ? `${icon('seed', 18)} New seed — click to collect` : this._plotInfo(i));
+    ui.hoverInfo(p.x, p.y, g.s.tutorial < 99 ? null : seedHit ? `${icon('seed', 18)} New seed — click to collect` : this._plotInfo(i));
   }
 
   _frame(dt) {
@@ -717,8 +1058,9 @@ class Game {
     this.stage.updateCamera(dt);
     tickBanks(this.frozen ? 50 : 5);
     this.stage.render(this.time);
+    this._goldenTick(dt);
     this.ui.update(dt);
-    this._tutorialTick();
+    this._tutorialTick(dt);
     this.lastSave += dt;
     if (this.lastSave > 10) { this.lastSave = 0; saveSoon(g.s, 200); }
   }
@@ -742,65 +1084,67 @@ class Game {
         this._frame(1 / 60);
       },
       grant: (c1, shape, pattern = 0, mut = 0, n = 1) => { this.garden.addSeed(makeFlower(c1, shape, pattern, null, mut), n); this.ui.dirty.pouch = true; },
+      golden: () => { this.goldenT = 0; },
+      cross: (a, b) => this.garden.cross(a, b),
     };
   }
 }
 
 // ------------------------------------------------------------------------------------------ tutorial steps
-// Each step: text, optional pointer target, and a completion test (event-driven `done` or polled `check`).
+// Each step: text (or text(G)), spec(G) → { hand, holes } for the spotlight, gate = what may be touched, and a
+// completion test: done(G, event, payload) or a polled check(G). keep(G) runs every frame (safety nets).
+const planted = (G, n) => n === 'plant';
 const TUT = [
   {
-    key: 'pick', text: 'Welcome to your garden! Tap a <b>seed</b> to pick it up.',
-    target: (G) => ({ el: G.ui.pouchList.children[0] }),
-    done: (G, n, p) => (n === 'select' && p.i >= 0) || n === 'plant',
+    key: 'plant1', gate: ['garden', 'pouch'],
+    text: (G) => (G.ui.sel < 0 ? 'Drag the <b>seed</b> into the soil!' : 'Now tap the <b>soil</b> to plant it!'),
+    spec: (G) => G._plantSpec(G._tutPlot('red')), keep: (G) => G._tutSeed(C.RED), done: planted,
   },
   {
-    key: 'plant1', text: 'Now tap the <b>soil</b> to plant it.',
-    target: (G) => (G.ui.sel < 0 ? { el: G.ui.pouchList.children[0] } : { world: { ...G.garden.pos[centerPlot(G.garden)], y: 0.3 } }),
-    done: (G, n) => n === 'plant',
+    key: 'grow1', gate: ['garden'],
+    text: (G) => (G.garden.plots[G._plantedIdx(C.RED)]?.plant?.taps ? 'Keep tapping!' : 'Tap the sprout to make it <b>grow</b>!'),
+    spec: (G) => G._growSpec(G._plantedIdx(C.RED)), done: (G, n) => n === 'bloom',
   },
   {
-    key: 'plant2', text: 'Plant the other seed <b>right next to it</b>.',
-    target: (G) => (G.ui.sel < 0 ? { el: G.ui.pouchList.children[0] } : { world: { ...G.garden.pos[neighbourPlot(G.garden)], y: 0.3 } }),
-    done: (G, n) => n === 'plant',
+    key: 'plant2', gate: ['garden', 'pouch'],
+    text: (G) => (G.ui.sel < 0 ? 'Now plant the <b>blue</b> seed next to it!' : 'Tap the <b>soil</b> to plant it!'),
+    spec: (G) => G._plantSpec(G._tutPlot('blue')), keep: (G) => G._tutSeed(C.BLUE), done: planted,
   },
   {
-    key: 'grow', text: 'Watch them grow… <b>bees</b> love neighbouring blooms!',
-    done: (G, n) => n === 'seed',
+    key: 'grow2', gate: ['garden'], text: 'Tap, tap, tap!',
+    spec: (G) => G._growSpec(G._plantedIdx(C.BLUE)), done: (G, n) => n === 'bloom',
   },
   {
-    key: 'collect', text: 'A bee mixed your flowers into a <b>new seed</b>! Tap the bubble.',
-    target: (G) => { const o = [...G.view.orbs.values()].find((x) => !x.leaving); return o ? { world: { x: o.x, y: o.y, z: o.z } } : null; },
-    done: (G, n) => n === 'seedCollected',
+    key: 'cross', gate: ['garden'],
+    text: 'Drag from the <b>red</b> flower to the <b>blue</b> one to mix them!',
+    spec: (G) => G._crossSpec(G._plantedIdx(C.RED), G._plantedIdx(C.BLUE)),
+    // still stuck after a while? a bee shows how it's done
+    keep: (G) => { if (G.tutT > 25) G.garden.tutBees = true; },
+    done: (G, n) => n === 'cross' || n === 'seed',
   },
   {
-    key: 'harvest', text: 'Tap a <b>bloom</b> to harvest it for coins.',
-    target: (G) => { const i = G.garden.plots.findIndex((p, k) => G.garden.isBloom(k)); return i >= 0 ? { world: G.view.headPos(i) } : null; },
-    done: (G, n, p) => n === 'harvest' && !p.auto,
+    key: 'collect', gate: ['garden'], text: 'A new seed! <b>Tap</b> it to collect it.',
+    spec: (G) => G._orbSpec(), done: (G, n) => n === 'seedCollected',
+    check: (G) => !G.garden.s.seeds.length && G.garden.s.pouch.some((e) => e.g.c1 === C.PURPLE),
   },
   {
-    key: 'plant3', text: 'Now plant your <b>new seed</b> — what will it be?',
-    target: (G) => {
-      if (G.ui.sel < 0) { const k = G.garden.s.pouch.findIndex((e) => e.g.c1 === C.PURPLE); return { el: G.ui.pouchList.children[Math.max(0, k)] }; }
-      const i = G.garden.plots.findIndex((p) => p.owned && !p.plant);
-      return i >= 0 ? { world: { ...G.garden.pos[i], y: 0.3 } } : null;
-    },
-    done: (G, n, p) => n === 'plant' && p.g.c1 === C.PURPLE,
+    key: 'plant3', gate: ['garden', 'pouch'],
+    text: (G) => (G.ui.sel < 0 ? 'Plant your <b>mystery seed</b>!' : 'Tap the <b>soil</b> to plant it!'),
+    spec: (G) => G._plantSpec(G._tutPlot('hybrid'), Math.max(0, G.garden.s.pouch.findIndex((e) => e.g.c1 === C.PURPLE))),
+    keep: (G) => G._tutSeed(C.PURPLE), done: (G, n, p) => n === 'plant' && p.g.c1 === C.PURPLE,
   },
   {
-    key: 'wait', text: 'Red + Blue… let\'s see what grows!',
-    done: (G, n, p) => n === 'discover' && p.g.c1 === C.PURPLE,
+    key: 'grow3', gate: ['garden'], text: 'Tap it to see what grows!',
+    spec: (G) => G._growSpec(G._plantedIdx(C.PURPLE)), done: (G, n, p) => n === 'discover' && p.g.c1 === C.PURPLE,
+  },
+  // the discovery card is up: wait for the player to close it
+  { key: 'reveal', gate: [], text: null, check: (G) => G.tutT > 0.4 && !G.ui.cardOpen && !G.ui.cards.some((c) => c.tutorial) },
+  {
+    key: 'harvest', gate: ['garden'], text: 'Tap all your flowers <b>fast</b> to harvest them!',
+    spec: (G) => G._bloomsSpec(), done: (G, n, p) => n === 'harvest' && !p.auto && ++G.tutN >= 3,
+    check: (G) => G.tutT > 2 && !G.garden.plots.some((p, i) => G.garden.isBloom(i)) && G.tutN > 0,
   },
 ];
-function centerPlot(g) { return g.byKey.get('0,0'); }
-function neighbourPlot(g) {
-  const planted = g.plots.findIndex((p) => p.plant);
-  const nb = (planted >= 0 ? g.nb[planted] : g.nb[centerPlot(g)]).find((j) => g.plots[j].owned && !g.plots[j].plant);
-  return nb ?? centerPlot(g);
-}
-// the last tutorial step finishes the tutorial after the discovery card
-const _origDone = TUT[TUT.length - 1].done;
-TUT[TUT.length - 1].done = (G, n, p) => { const ok = _origDone(G, n, p); if (ok) setTimeout(() => G._finishTutorial(), 1600); return false; };
 
 const game = new Game();
 game.boot().catch((e) => {

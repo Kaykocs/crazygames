@@ -6,3 +6,5 @@ game.js.map
 test-results/
 shots/
 .DS_Store
+tools/.scratch/
+.claude/

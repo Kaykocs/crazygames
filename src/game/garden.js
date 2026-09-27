@@ -12,6 +12,7 @@ import {
   orderText, dailyGift, harvestXp, ORDER_TTL, DECOR, decorBonus, ACHIEVEMENTS, colorRowReward, shapeColReward,
   discoveryCoins, dailySpecial,
 } from './economy.js';
+import { QUESTS } from './quests.js';
 
 export const GARDEN_RADIUS = 3;
 export const HIVE_POS = { x: -5.6, z: -4.4 };     // world units (hex size 1); the view places the hive model here
@@ -19,6 +20,10 @@ const BEE_SPEED = 2.6;                              // world units / s
 const MAX_FLOATING = 6;
 const SEED_AUTO_COLLECT = 25;                       // floating seeds drop into the pouch by themselves after this
 const REGROW = 0.55;                                // regrow time as a fraction of the full grow time
+const CROSS_REST = 8;                               // seconds a bloom rests after it was cross-pollinated
+const MANUAL_SEED_AUTO = 3;                         // seeds from the player's own crosses fly to the pouch after this
+const COMBO_WINDOW = 1.3;                           // seconds between harvests that keep a combo going
+const TAP_GAIN = 0.14, TAP_FADE = 0.85;             // growth per tap (fraction of the grow time), fading per tap
 const WEATHER = {
   rain: { dur: [45, 60], weight: 40, mut: M.DEWY, p: 0.3 },
   golden: { dur: [40, 55], weight: 25, mut: M.GOLDEN, p: 0.16 },
@@ -31,7 +36,7 @@ function hashDate(str) { let h = 2166136261; for (let i = 0; i < str.length; i++
 
 export function newSave() {
   return {
-    v: 1,
+    v: 2,
     t: 0,
     saved: Date.now(),
     coins: 40,
@@ -48,7 +53,8 @@ export function newSave() {
     can: { charges: 3, t: 0 },
     seeds: [],
     tutorial: 0,
-    stats: { harvests: 0, discoveries: 0, orders: 0, seeds: 0, play: 0, sessions: 0, earned: 0, mutMask: 0 },
+    stats: { harvests: 0, discoveries: 0, orders: 0, seeds: 0, play: 0, sessions: 0, earned: 0, mutMask: 0, plants: 0, crosses: 0, boosts: 0, bestCombo: 0, golden: 0, waters: 0 },
+    quest: { i: 0, base: 0 },
     daily: { last: '', streak: 0 },
     decor: {},
     ach: {},
@@ -74,6 +80,8 @@ export class Garden {
     this.seedId = 1 + save.seeds.reduce((m, s) => Math.max(m, s.id), 0);
     this.recentOrders = [];
     this.tutorialSpeed = 1;
+    this.combo = 0; this.comboT = -99;
+    if (!save.quest) save.quest = { i: 0, base: 0 };
     if (!save.shop) this.restock();
   }
 
@@ -114,6 +122,7 @@ export class Garden {
       case 'plots': return this.ownedCount();
       case 'level': return this.s.level;
       case 'decor': return Object.keys(this.s.decor).length;
+      case 'upgrades': return Object.values(this.s.upgrades).reduce((n, v) => n + v, 0);
       case 'mutations': { let n = 0, m = st.mutMask; while (m) { n += m & 1; m >>= 1; } return n; }
       default: return st[stat] || 0;
     }
@@ -128,7 +137,33 @@ export class Garden {
     }
     return best ? { ...best, value: this.statValue(best.stat), k: bestK } : null;
   }
+  // the starter quest in progress (null once the chain is done or during the tutorial)
+  currentQuest() {
+    const s = this.s;
+    if (s.tutorial < 99) return null;
+    const q = QUESTS[s.quest.i];
+    if (!q) return null;
+    const value = Math.max(0, this.statValue(q.stat) - (q.abs ? 0 : s.quest.base));
+    return { ...q, value: Math.min(value, q.goal), k: Math.min(1, value / q.goal) };
+  }
+  startQuests() { this.s.quest = { i: 0, base: 0 }; this._beginQuest(); }
+  _beginQuest() { const q = QUESTS[this.s.quest.i]; this.s.quest.base = q && !q.abs ? this.statValue(q.stat) : 0; }
+  _checkQuest() {
+    const q = this.currentQuest();
+    if (!q || q.value < q.goal) return;
+    const got = { coins: q.reward.coins || 0, seeds: [] };
+    if (got.coins) this.earn(got.coins);
+    for (const [c1, shape, n] of q.reward.seeds || []) {
+      const g = makeFlower(c1, shape);
+      if (this.addSeed(g, n) >= 0) got.seeds.push({ g, n });
+      else { const c = flowerValue(g) * 3 * n; got.coins += c; this.earn(c); }     // no room: pay out instead
+    }
+    this.s.quest.i++;
+    this._beginQuest();
+    this.emit('quest', { q, got, next: this.currentQuest() });
+  }
   checkAchievements() {
+    this._checkQuest();
     for (const a of ACHIEVEMENTS) {
       if (this.s.ach[a.id] || this.statValue(a.stat) < a.goal) continue;
       this.s.ach[a.id] = Date.now();
@@ -145,8 +180,10 @@ export class Garden {
     if (!p || !p.owned || p.plant || !e) return false;
     const g = e.g;
     if (--e.n <= 0) this.s.pouch.splice(pouchIdx, 1);
-    p.plant = { g: { ...g, mut: 0 }, stage: 'grow', t: 0, dur: this.plantDuration(g), bloomT: 0, pollenT: 0, harvests: 0 };
+    p.plant = { g: { ...g, mut: 0 }, stage: 'grow', t: 0, dur: this.plantDuration(g), bloomT: 0, pollenT: 0, harvests: 0, taps: 0 };
+    this.s.stats.plants = (this.s.stats.plants || 0) + 1;
     this.emit('plant', { i, g });
+    this.checkAchievements();
     return true;
   }
 
@@ -162,7 +199,17 @@ export class Garden {
     }
     pl.stage = 'grow';
     pl.t = pl.dur * (1 - REGROW);
+    pl.taps = 0;
     pl.harvests++;
+    // quick harvests in a row build a combo that multiplies the coins (×1.25, ×1.5 … up to ×2)
+    let combo = 0;
+    if (!auto) {
+      this.combo = this.s.t - this.comboT <= COMBO_WINDOW ? this.combo + 1 : 1;
+      this.comboT = this.s.t;
+      combo = this.combo;
+      if (combo > (this.s.stats.bestCombo || 0)) this.s.stats.bestCombo = combo;
+    }
+    const mult = 1 + 0.25 * Math.min(4, Math.max(0, combo - 1));
     pl.g.mut = pl.g.mut === M.GIANT ? M.GIANT : 0;       // weather mutations wash off; giants stay giant
     this.s.stats.harvests++;
     let coins = 0;
@@ -180,11 +227,11 @@ export class Garden {
       this.emit('order:done', { k: 'special', order: o });
       this.addXp(o.xp);
     } else {
-      coins = auto ? Math.round(value * 0.6) : value;
+      coins = auto ? Math.round(value * 0.6) : Math.round(value * mult);
       this.earn(coins);
     }
     this.addXp(harvestXp(flowerValue(g)));
-    this.emit('harvest', { i, g, coins, delivered, auto });
+    this.emit('harvest', { i, g, coins, delivered, auto, combo });
     this.checkAchievements();
     return { coins, delivered };
   }
@@ -205,8 +252,55 @@ export class Garden {
     if (!p || !p.plant || p.plant.stage !== 'grow' || this.s.can.charges <= 0) return false;
     this.s.can.charges--;
     p.plant.t = Math.min(p.plant.dur, p.plant.t + p.plant.dur * 0.4);
+    this.s.stats.waters = (this.s.stats.waters || 0) + 1;
     this.emit('water', { i });
+    this.checkAchievements();
     return true;
+  }
+
+  // tap a growing plant to make it grow: each tap in a growth cycle helps a little less than the one before
+  boost(i) {
+    const pl = this.plots[i]?.plant;
+    if (!pl || pl.stage !== 'grow') return null;
+    const k = pl.taps || 0;
+    const frac = this.s.tutorial < 99 ? 0.26 : TAP_GAIN * Math.pow(TAP_FADE, k);
+    pl.taps = k + 1;
+    const before = pl.t;
+    pl.t = Math.min(pl.dur, pl.t + pl.dur * frac);
+    this.s.stats.boosts = (this.s.stats.boosts || 0) + 1;
+    const out = { i, taps: pl.taps, gain: (pl.t - before) / pl.dur, k: pl.t / pl.dur };
+    this.emit('boost', out);
+    return out;
+  }
+
+  // the player carries pollen from bloom a to bloom b: an instant cross, and both blooms rest for a moment
+  canCross(a, b) {
+    return a !== b && a >= 0 && b >= 0 && this.isBloom(a) && this.isBloom(b) && this.plots[a].plant.pollenT <= 0 && this.plots[b].plant.pollenT <= 0;
+  }
+  resting(i) { const pl = this.plots[i]?.plant; return pl && pl.stage === 'bloom' ? Math.max(0, pl.pollenT) : 0; }
+  cross(a, b) {
+    if (!this.canCross(a, b)) return null;
+    const A = this.plots[a].plant, B = this.plots[b].plant;
+    let child = breed(A.g, B.g, this.rnd);
+    if (this.forceChild) { child = { ...this.forceChild }; this.forceChild = null; }   // tutorial: a guaranteed wow
+    A.pollenT = B.pollenT = CROSS_REST;
+    this.s.stats.crosses = (this.s.stats.crosses || 0) + 1;
+    const seed = this._spawnSeed(child, b, a, true);
+    this.emit('cross', { a, b, g: child, seed });
+    this.addXp(2);
+    return seed;
+  }
+
+  // a golden bee was caught: a handful of coins scaled to the garden's progress
+  catchGolden() {
+    let best = 0;
+    this.plots.forEach((p) => { if (p.plant) best = Math.max(best, this.sellValue(p.plant.g)); });
+    const coins = Math.round(Math.max(40 + 25 * this.s.level, best * 6) / 5) * 5;
+    this.earn(coins);
+    this.s.stats.golden = (this.s.stats.golden || 0) + 1;
+    this.addXp(5 + this.s.level);
+    this.emit('golden', { coins });
+    return coins;
   }
 
   collectSeed(id, { auto = false } = {}) {
@@ -490,6 +584,7 @@ export class Garden {
   // bloomed neighbour pairs a bee could work on
   _pairs() {
     const out = [];
+    if (this.s.tutorial < 99 && !this.tutBees) return out;     // the tutorial teaches crossing by hand first
     const busy = new Set();
     for (const b of this.bees) if (b.a >= 0) { busy.add(b.a); busy.add(b.b); }
     this.plots.forEach((p, a) => {
@@ -540,10 +635,10 @@ export class Garden {
           break;
         case 'atB':
           if (bee.t >= bee.dur) {
-            if (this.isBloom(bee.a) && this.isBloom(bee.b)) {
+            if (this.isBloom(bee.a) && this.isBloom(bee.b) && this.plots[bee.a].plant.pollenT <= 0 && this.plots[bee.b].plant.pollenT <= 0) {
               const A = this.plots[bee.a].plant, B = this.plots[bee.b].plant;
               let child = breed(A.g, B.g, this.rnd);
-              if (this.forceChild) { child = { ...this.forceChild }; this.forceChild = null; }   // tutorial: a guaranteed wow
+              if (this.forceChild) { child = { ...this.forceChild }; this.forceChild = null; }
               A.pollenT = B.pollenT = 9;
               this._spawnSeed(child, bee.b, bee.a);
             }
@@ -580,16 +675,18 @@ export class Garden {
     return { x: bee.from.x + (bee.to.x - bee.from.x) * k, z: bee.from.z + (bee.to.z - bee.from.z) * k };
   }
 
-  _spawnSeed(g, i, from) {
-    const seed = { id: this.seedId++, g, i, from, age: 0 };
+  _spawnSeed(g, i, from, manual = false) {
+    const seed = { id: this.seedId++, g, i, from, age: 0, manual };
     this.s.seeds.push(seed);
     this.emit('seed', seed);
+    return seed;
   }
 
   _seeds(dt) {
     for (const sd of [...this.s.seeds]) {
       sd.age += dt;
-      if (sd.age > SEED_AUTO_COLLECT && this.pouchFree() > 0) this.collectSeed(sd.id, { auto: true });
+      const wait = sd.manual ? (this.s.tutorial < 99 ? 7 : MANUAL_SEED_AUTO) : SEED_AUTO_COLLECT;
+      if (sd.age > wait && this.canAccept(sd.g)) this.collectSeed(sd.id, { auto: true });
     }
   }
 

@@ -77,8 +77,8 @@ export class UI {
     // sub chips
     const sub = el('div', 'hud-sub');
     this.weatherChip = el('div', 'chip weather', '');
-    this.goalChip = el('div', 'chip goal hit', `${icon('target')}<span class="txt"></span><span class="bar"><i></i></span>`);
-    this.goalChip.onclick = () => { this.api.sound('button'); this.openBook('goals'); };
+    this.goalChip = el('div', 'chip goal hit', `${icon('target')}<span class="txt"></span><span class="rw"></span><span class="bar"><i></i></span>`);
+    this.goalChip.onclick = () => { this.api.sound('button'); if (this.g.currentQuest()) this.api.questHint?.(); else this.openBook('goals'); };
     sub.append(this.weatherChip, this.goalChip);
     // orders
     this.ordersEl = el('div', 'orders');
@@ -153,11 +153,14 @@ export class UI {
     const wLeft = w.until - s.t;
     const wHtml = `${weatherIcon(wk)}<span>${WEATHER_NAMES[wk]}</span>${s.tutorial >= 99 ? `<span class="t">${wk === 'clear' ? 'next ' : ''}${fmtTime(wLeft)}</span>` : ''}`;
     if (this._wHtml !== wHtml) { this._wHtml = wHtml; this.weatherChip.innerHTML = wHtml; this.weatherChip.classList.toggle('active', wk !== 'clear'); }
-    // goal chip
-    const goal = g.nextGoal();
+    // goal chip: the current starter quest (with its reward), then the achievement ladder
+    const quest = g.currentQuest();
+    const goal = quest || g.nextGoal();
     if (goal) {
-      const txt = `${goal.text} (${fmt(Math.min(goal.value, goal.goal))}/${fmt(goal.goal)})`;
-      const ic = GOAL_ICON[goal.stat] || 'target';
+      const txt = quest ? (quest.goal > 1 ? `${quest.text} (${quest.value}/${quest.goal})` : quest.text) : `${goal.text} (${fmt(Math.min(goal.value, goal.goal))}/${fmt(goal.goal)})`;
+      const ic = quest ? quest.icon : GOAL_ICON[goal.stat] || 'target';
+      const rw = quest ? (quest.reward.coins ? `${icon('coin')}${fmt(quest.reward.coins)}` : `${icon('seed')}×${quest.reward.seeds.reduce((n, x) => n + x[2], 0)}`) : '';
+      if (this._goalRw !== rw) { this._goalRw = rw; this.goalChip.querySelector('.rw').innerHTML = rw; this.goalChip.classList.toggle('quest', !!quest); }
       if (this._goalIco !== ic) { this._goalIco = ic; this.goalChip.querySelector('.ico')?.remove(); this.goalChip.insertAdjacentHTML('afterbegin', icon(ic)); }
       if (this._goalTxt !== txt) { this._goalTxt = txt; this.goalChip.querySelector('.txt').textContent = txt; }
       const gw = `${Math.round(goal.k * 100)}%`;
@@ -182,7 +185,6 @@ export class UI {
     if (this.dirty.orders) this.renderOrders();
     this._orderAges();
     this._updatePlotTags();
-    this._updateTutorial();
     if (this.panel?.tick) this.panel.tick(dt);
   }
 
@@ -256,7 +258,7 @@ export class UI {
 
   seedDetails(i) {
     const e = this.g.s.pouch[i];
-    if (!e) return;
+    if (!e || this.g.s.tutorial < 99) return;          // no selling the tutorial's seeds by accident
     const known = !!this.g.s.book[speciesId(e.g)];
     const g = e.g;
     const sell = Math.max(1, Math.round(flowerValue(g) * 0.5));
@@ -441,6 +443,21 @@ export class UI {
     };
     requestAnimationFrame(step);
   }
+
+  // a finished starter quest: the chip celebrates and the reward flies out of it
+  questDone(p) {
+    const r = this.goalChip.getBoundingClientRect();
+    const x = r.left + Math.min(r.width / 2, 90), y = r.top + r.height / 2;
+    this.goalChip.classList.remove('done'); void this.goalChip.offsetWidth; this.goalChip.classList.add('done');
+    const bits = [];
+    if (p.got.coins) { bits.push(`${icon('coin')} +${fmt(p.got.coins)}`); setTimeout(() => this.flyCoins(x, y, p.got.coins), 150); }
+    p.got.seeds.forEach((sd, k) => { bits.push(`${flowerSVG(sd.g, { size: 26 })} ×${sd.n}`); setTimeout(() => this.flySeed(x, y, flowerSVG(sd.g, { size: 36 })), 200 + k * 150); });
+    this.toast(`${icon('check')} <b>Quest complete!</b> ${bits.join(' ')}`, 'good', 2.8);
+    this.api.sound('quest');
+    this.dirty.pouch = true;
+  }
+  // a seed icon following the pointer while a seed is dragged out of the pouch
+  dragGhost(html) { const d = el('div', 'drag-ghost', html); this.fly.appendChild(d); return d; }
 
   toast(html, kind = '', life = 2.4) {
     const t = el('div', `toast ${kind}`, html);
@@ -703,49 +720,110 @@ export class UI {
       kicker: 'How to play',
       hero: flowerSVG({ c1: 6, c2: 3, shape: 3, pattern: 1, mut: 0 }, { size: 120 }),
       list: [
-        `${icon('seed')} Pick a seed below, then tap soil to plant it`,
-        `${icon('bee')} Bees cross neighbouring blooms into new seeds`,
+        `${icon('seed')} Drag a seed from your pouch onto the soil`,
+        `${icon('star')} Tap growing flowers to make them grow faster`,
+        `${icon('bee')} Drag pollen from one bloom onto another to cross them — bees cross neighbours too`,
         `${icon('book')} Mix colours: red + blue = purple, and more!`,
-        `${icon('coin')} Tap blooms to harvest coins — swipe to harvest many`,
+        `${icon('coin')} Tap blooms to harvest — quick taps make a combo`,
         `${icon('rainbow')} Weather can mutate blooms: golden, rainbow…`,
-        `${icon('basket')} Buy plots, upgrades and decorations`,
       ],
       buttons: [{ label: 'Let\'s grow!' }],
       now: true,
     });
   }
 
-  // ------------------------------------------------------------------------------------------ tutorial pointer
-  // target: { el } (DOM element) or { world: {x,y,z} }; text shown in a bubble
-  setTutorial(step) { this.tutStep = step; this._tutKey = null; }
-  _updateTutorial() {
-    const st = this.tutStep;
-    if (!st) { if (this.tut.childElementCount) this.tut.innerHTML = ''; return; }
-    if (this._tutKey !== st.key) {
-      this._tutKey = st.key;
-      this.tut.innerHTML = '';
-      this.tutHand = el('div', 'tut-hand', icon('hand', 64));
-      this.tutBubble = el('div', 'tut-bubble', `<div class="queen">${visitorSVG('queen', '#ffc928', 58)}</div>${st.text}`);
-      if (st.target) this.tut.appendChild(this.tutHand);
-      this.tut.appendChild(this.tutBubble);
+  // ------------------------------------------------------------------------------------------ tutorial & hints
+  // Called every frame with the current step (or null). spec: { key, text, hand, holes, dim, skip, soft }
+  //   hand: { tap: {x, y} } | { drag: {x0, y0, x1, y1}, ghost: html } | null      (screen pixels)
+  //   holes: [{ x, y, r }] spotlight holes in the dimmed screen (the rest of the screen is blocked by Game)
+  tutFrame(spec) {
+    const L = this.tut;
+    if (!spec || this.cardOpen || this.panel) { if (this._tut) { L.innerHTML = ''; this._tut = null; } return; }
+    let T = this._tut;
+    if (!T || T.key !== spec.key) {
+      L.innerHTML = '';
+      T = this._tut = { key: spec.key, text: null, holes: null, bh: 0, t0: performance.now(), pos: '', topY: null, frameN: 0 };
+      if (spec.dim) {
+        T.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        T.svg.setAttribute('class', 'tut-dim');
+        T.svg.innerHTML = `<defs><radialGradient id="tutHole"><stop offset="0.6" stop-color="#000"/><stop offset="1" stop-color="#fff"/></radialGradient>
+          <mask id="tutMask" maskUnits="userSpaceOnUse" x="0" y="0" width="100%" height="100%"><rect width="100%" height="100%" fill="#fff"/><g class="holes"></g></mask></defs>
+          <rect width="100%" height="100%" fill="rgba(36,20,8,0.5)" mask="url(#tutMask)"/><g class="rings"></g>`;
+        L.appendChild(T.svg);
+      }
+      T.ghost = el('div', 'tut-ghost');
+      T.hand = el('div', 'tut-hand', icon('hand', 64));
+      T.bubble = el('div', 'tut-bubble' + (spec.soft ? ' soft' : ''), `${spec.soft ? '' : `<div class="queen">${visitorSVG('queen', '#ffc928', 58)}</div>`}<span class="txt"></span>`);
+      if (spec.skip) {
+        const sk = el('button', 'tut-skip', 'Skip');
+        sk.onclick = (e) => { e.stopPropagation(); this.api.sound('button'); this.api.skipTutorial?.(); };
+        T.bubble.appendChild(sk);
+      }
+      L.append(T.ghost, T.hand, T.bubble);
+      if (!spec.soft) this.api.sound('hint');
     }
-    let x = null, y = null;
-    if (st.target?.el) {
-      const r = st.target.el.getBoundingClientRect?.();
-      if (r && r.width) { x = r.left + r.width * 0.55; y = r.top + r.height * 0.55; }
-    } else if (st.target?.world && this.api.view) {
-      const p = this.api.view.project(st.target.world.x, st.target.world.y, st.target.world.z);
-      x = p.x; y = p.y;
+    if (T.text !== spec.text) {
+      T.text = spec.text;
+      T.bubble.querySelector('.txt').innerHTML = spec.text;
+      T.bubble.classList.remove('pop'); void T.bubble.offsetWidth; T.bubble.classList.add('pop');
+      T.bh = T.bubble.offsetHeight;
     }
-    if (x != null) { this.tutHand.style.display = ''; this.tutHand.style.transform = `translate(${x - 12}px, ${y - 6}px)`; }
-    else if (this.tutHand) this.tutHand.style.display = 'none';
-    // bubble sits above the bottom bar (or under the HUD when pointing low)
-    const b = this.bottomEl.getBoundingClientRect();
-    const low = y != null && y > window.innerHeight * 0.55;
-    if (low) { this.tutBubble.style.top = `${this.topEl.getBoundingClientRect().bottom + (window.innerWidth / window.innerHeight < 0.8 ? 80 : 14)}px`; this.tutBubble.style.bottom = ''; }
-    else { this.tutBubble.style.bottom = `${window.innerHeight - b.top + 12}px`; this.tutBubble.style.top = ''; }
+    // spotlight holes (+ a dashed ring around each target)
+    const holes = spec.holes || [];
+    const hk = holes.map((h) => `${Math.round(h.x)},${Math.round(h.y)},${Math.round(h.r)}`).join(';');
+    if (T.svg && T.holes !== hk) {
+      T.holes = hk;
+      T.svg.querySelector('.holes').innerHTML = holes.map((h) => `<circle cx="${h.x}" cy="${h.y}" r="${h.r / 0.6}" fill="url(#tutHole)"/>`).join('');
+      T.svg.querySelector('.rings').innerHTML = holes.map((h) => `<circle class="ring" cx="${h.x}" cy="${h.y}" r="${h.r}"/>`).join('');
+    }
+    // the hand: taps in place, or drags from one point to another (with what it carries under the finger)
+    const h = spec.hand;
+    const hs = T.hand.style, gs = T.ghost.style;
+    if (!h) { hs.display = 'none'; gs.display = 'none'; }
+    else if (h.tap) {
+      hs.display = ''; gs.display = 'none';
+      T.hand.classList.remove('drag');
+      hs.opacity = '1';
+      hs.transform = `translate(${h.tap.x - 12}px, ${h.tap.y - 6}px)`;
+    } else if (h.drag) {
+      const d = h.drag, C = 2400, t = ((performance.now() - T.t0) % C) / C;
+      const e = t < 0.14 ? 0 : t > 0.64 ? 1 : ease01((t - 0.14) / 0.5);
+      const mx = (d.x0 + d.x1) / 2, my = Math.min(d.y0, d.y1) - Math.max(30, Math.hypot(d.x1 - d.x0, d.y1 - d.y0) * 0.2);
+      const x = (1 - e) * (1 - e) * d.x0 + 2 * (1 - e) * e * mx + e * e * d.x1;
+      const y = (1 - e) * (1 - e) * d.y0 + 2 * (1 - e) * e * my + e * e * d.y1;
+      const press = t < 0.1 ? 1 - t / 0.1 * 0.15 : t < 0.7 ? 0.85 : Math.min(1, 0.85 + (t - 0.7) / 0.08 * 0.15);
+      const a = t < 0.08 ? t / 0.08 : t > 0.84 ? Math.max(0, 1 - (t - 0.84) / 0.12) : 1;
+      T.hand.classList.add('drag');
+      hs.display = ''; hs.opacity = a.toFixed(3);
+      hs.transform = `translate(${x - 12}px, ${y - 6}px) scale(${press.toFixed(3)})`;
+      if (h.ghost && t > 0.1 && t < 0.72) {
+        if (T.ghostHtml !== h.ghost) { T.ghostHtml = h.ghost; T.ghost.innerHTML = h.ghost; }
+        gs.display = ''; gs.opacity = a.toFixed(3);
+        gs.transform = `translate(${x - 22}px, ${y - 30}px)`;
+      } else gs.display = 'none';
+    }
+    // bubble: under the top HUD, or above the bottom bar when a target is up there
+    if (T.topY == null || T.frameN++ % 30 === 0) {
+      const sub = this.subEl.getBoundingClientRect();         // the chips sit under the HUD on wide screens, at the bottom on phones
+      T.topY = Math.max(this.topEl.getBoundingClientRect().bottom, this.xpLabel.getBoundingClientRect().bottom, sub.top < window.innerHeight / 2 ? sub.bottom : 0) + 10;
+    }
+    const top = T.topY;
+    const up = holes.some((o) => o.y - o.r < top + T.bh + 12) || (h?.tap && h.tap.y < top + T.bh + 40);
+    const pos = up ? `b${Math.round(window.innerHeight - this.bottomEl.getBoundingClientRect().top + 12)}` : `t${Math.round(top)}`;
+    if (T.pos !== pos) {
+      T.pos = pos;
+      if (up) { T.bubble.style.top = ''; T.bubble.style.bottom = `${pos.slice(1)}px`; } else { T.bubble.style.bottom = ''; T.bubble.style.top = `${pos.slice(1)}px`; }
+    }
+  }
+  // a wrong tap while the tutorial is waiting for something specific: the bubble wiggles
+  tutNudge() {
+    const b = this._tut?.bubble;
+    if (!b) return;
+    b.classList.remove('nudge'); void b.offsetWidth; b.classList.add('nudge');
   }
 }
+
+const ease01 = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
 
 // one picture per kind of goal
 const GOAL_ICON = { discoveries: 'book', harvests: 'basket', seeds: 'seed', orders: 'gift', plots: 'shovel', level: 'star', mutations: 'rainbow', decor: 'up_market' };
