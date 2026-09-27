@@ -30,6 +30,23 @@ export class UI {
     this.plotTags = new Map();
     this.dirty = { pouch: true, orders: true, tools: true, hud: true };
     this._build();
+    this._warmIcons();
+  }
+
+  // Paint the Flower Book icons a few at a time while the player is busy elsewhere, so opening the book is instant.
+  _warmIcons() {
+    const jobs = [];
+    SHAPES.forEach((sh, si) => jobs.push(() => flowerSVG({ c1: 0, shape: si, pattern: 0, mut: 0 }, { size: 34, silhouette: true })));
+    const known = [], rest = [];
+    COLORS.forEach((c, ci) => SHAPES.forEach((sh, si) => (this.g.s.book[ci * 8 + si] ? known : rest).push({ c1: ci, c2: null, shape: si, pattern: 0, mut: 0 })));
+    for (const g of [...known, ...rest]) jobs.push(() => flowerSVG(g, { size: 34 }));
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(() => fn({ timeRemaining: () => 6 }), 120));
+    const step = (dl) => {
+      const t0 = performance.now();
+      while (jobs.length && (dl.timeRemaining() > 4 || performance.now() - t0 < 2)) { jobs.shift()(); if (performance.now() - t0 > 6) break; }
+      if (jobs.length) idle(step, { timeout: 1500 });
+    };
+    setTimeout(() => idle(step, { timeout: 1500 }), 2500);
   }
 
   // ------------------------------------------------------------------------------------------ build
@@ -126,7 +143,8 @@ export class UI {
     const lv = String(s.level);
     if (this.lvlBadge.firstChild.textContent !== lv) this.lvlBadge.firstChild.textContent = lv;
     const need = xpForLevel(s.level);
-    this.xpFill.style.width = `${Math.min(100, (s.xp / need) * 100).toFixed(1)}%`;
+    const xw = `${Math.min(100, (s.xp / need) * 100).toFixed(1)}%`;
+    if (this._xw !== xw) { this._xw = xw; this.xpFill.style.width = xw; }
     const xl = `${fmt(s.xp)} / ${fmt(need)} XP`;
     if (this.xpLabel.textContent !== xl) this.xpLabel.textContent = xl;
     // weather chip
@@ -141,11 +159,12 @@ export class UI {
       const txt = `${goal.text} (${fmt(Math.min(goal.value, goal.goal))}/${fmt(goal.goal)})`;
       const ic = GOAL_ICON[goal.stat] || 'target';
       if (this._goalIco !== ic) { this._goalIco = ic; this.goalChip.querySelector('.ico')?.remove(); this.goalChip.insertAdjacentHTML('afterbegin', icon(ic)); }
-      const tEl = this.goalChip.querySelector('.txt');
-      if (tEl.textContent !== txt) tEl.textContent = txt;
-      this.goalChip.querySelector('.bar i').style.width = `${Math.round(goal.k * 100)}%`;
-      this.goalChip.style.display = s.tutorial < 99 ? 'none' : '';
-    } else this.goalChip.style.display = 'none';
+      if (this._goalTxt !== txt) { this._goalTxt = txt; this.goalChip.querySelector('.txt').textContent = txt; }
+      const gw = `${Math.round(goal.k * 100)}%`;
+      if (this._goalW !== gw) { this._goalW = gw; this.goalChip.querySelector('.bar i').style.width = gw; }
+      const gd = s.tutorial < 99 ? 'none' : '';
+      if (this._goalD !== gd) { this._goalD = gd; this.goalChip.style.display = gd; }
+    } else if (this._goalD !== 'none') { this._goalD = 'none'; this.goalChip.style.display = 'none'; }
     // can badge
     const canOk = g.has('can');
     this.canBtn.classList.toggle('locked', !canOk);
@@ -153,7 +172,8 @@ export class UI {
     const bc = canOk ? String(s.can.charges) : '';
     if (badge.textContent !== bc) badge.textContent = bc;
     badge.classList.toggle('empty', canOk && s.can.charges === 0);
-    badge.style.display = canOk ? '' : 'none';
+    const bd = canOk ? '' : 'none';
+    if (badge.style.display !== bd) badge.style.display = bd;
     this.canBtn.classList.toggle('on', this.tool === 'water');
     this.digBtn.classList.toggle('on', this.tool === 'dig');
     // shop dot when something affordable & new stock
@@ -335,7 +355,8 @@ export class UI {
         this.plotTags.set(i, t);
       }
       const w = g.pos[i], pp = view.project(w.x, 0.25, w.z);
-      t.style.left = `${pp.x}px`; t.style.top = `${pp.y}px`;
+      const tl = `translate(${pp.x.toFixed(1)}px, ${pp.y.toFixed(1)}px) translate(-50%, -50%)`;
+      if (t._tl !== tl) { t._tl = tl; t.style.transform = tl; }
       // affordable: a green "+ price" button; otherwise just a small lock (the price shows on tap / hover)
       const afford = g.s.coins >= cost;
       const html = i === lead ? `${afford ? icon('plus', 14) : icon('lock')}${icon('coin')}<span class="num">${fmt(cost)}</span>` : afford ? icon('plus', 16) : icon('lock');

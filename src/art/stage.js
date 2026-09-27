@@ -1,4 +1,4 @@
-// Stage: the 2D canvas, device-pixel handling, quality tiers, the 3/4-view camera, a cached ground layer and
+// Stage: the 2D canvas, device-pixel handling, quality tiers, the 3/4-view camera, the tiled ground layer and
 // the frame composition (ground → ground effects → depth-sorted objects → particles → light & weather).
 import { SQ, HY } from './view3q.js';
 
@@ -7,6 +7,8 @@ export const QUALITY = {
   medium: { name: 'medium', dpr: 1.5, particles: 0.8, ambient: 1, detail: 1, glow: true },
   high: { name: 'high', dpr: 2, particles: 1, ambient: 1, detail: 1, glow: true },
 };
+// never render more than this many canvas pixels (big / high-DPI screens get a slightly softer image, not a slide show)
+const MAX_PIXELS = 3.4e6;
 
 // best guess at a tier from the CrazyGames system info / the device
 export function detectQuality(info) {
@@ -19,6 +21,121 @@ export function detectQuality(info) {
 
 const quantRes = (r) => Math.max(8, Math.round(r / 6) * 6);
 
+// ------------------------------------------------------------------------------------------ tiled ground
+// The ground (lawn, paths, pond...) is static art, so it is painted once into 256 px tiles per zoom level and
+// cached. Missing tiles are painted a few per frame within a time budget, with a low-resolution overview of the
+// whole map (and tiles from the previous zoom level) standing in until they are ready: no frame ever repaints
+// the whole screen, so panning, zooming and buying plots never freeze.
+const TILE = 256, PAD = 1;
+const LV0 = 10, LVSTEP = 1.2;
+const levelOf = (res) => Math.max(0, Math.round(Math.log(res / LV0) / Math.log(LVSTEP)));
+const resOf = (k) => LV0 * Math.pow(LVSTEP, k);
+const OVERVIEW = { X0: -30, X1: 30, Y0: -24 * SQ, Y1: 26 * SQ, res: 9 };
+
+class Ground {
+  constructor(stage) {
+    this.s = stage;
+    this.tiles = new Map();
+    this.want = [];
+    this.frame = 0;
+    this.overview = null;
+    this.level = -1; this.prevLevel = -1;
+    this.budgetMs = 5;
+  }
+  invalidate() { this.tiles.clear(); this.overview = null; }
+  _res() {
+    // the ground is soft: cap its resolution at 1.5 device px per CSS px
+    const d = Math.min(this.s._dpr || 1, 1.5);
+    return this.s.target.ppu * d;
+  }
+  _paint(k, i, j) {
+    const res = resOf(k), unit = TILE / res;
+    const c = document.createElement('canvas');
+    c.width = c.height = TILE + PAD * 2;
+    const g = c.getContext('2d', { alpha: false });
+    const X0 = i * unit - PAD / res, Y0 = j * unit - PAD / res;
+    g.setTransform(res, 0, 0, res, -X0 * res, -Y0 * res);
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    const X1 = X0 + (TILE + PAD * 2) / res, Y1 = Y0 + (TILE + PAD * 2) / res;
+    g.fillStyle = '#7cc458'; g.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
+    this.s.paintGround?.(g, X0, Y0, X1, Y1, 1 / res);
+    return { c, used: this.frame };
+  }
+  _overview() {
+    const o = OVERVIEW;
+    const c = document.createElement('canvas');
+    c.width = Math.ceil((o.X1 - o.X0) * o.res); c.height = Math.ceil((o.Y1 - o.Y0) * o.res);
+    const g = c.getContext('2d', { alpha: false });
+    g.setTransform(o.res, 0, 0, o.res, -o.X0 * o.res, -o.Y0 * o.res);
+    g.fillStyle = '#7cc458'; g.fillRect(o.X0, o.Y0, o.X1 - o.X0, o.Y1 - o.Y0);
+    this.s.paintGround?.(g, o.X0, o.Y0, o.X1, o.Y1, 1 / o.res, { coarse: true });
+    this.overview = c;
+  }
+  _range(k, v) {
+    const unit = TILE / resOf(k);
+    return { unit, i0: Math.floor(v.X0 / unit), i1: Math.floor(v.X1 / unit), j0: Math.floor(v.Y0 / unit), j1: Math.floor(v.Y1 / unit) };
+  }
+  // paint every visible tile now (used while the loading screen is up)
+  fill() {
+    const k = levelOf(this._res()), r = this._range(k, this.s.view(0.5));
+    for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) {
+      const key = k + ':' + i + ':' + j;
+      if (!this.tiles.has(key)) this.tiles.set(key, this._paint(k, i, j));
+    }
+    if (!this.overview) this._overview();
+  }
+  // paint missing tiles nearest the middle of the screen first, within the time budget
+  tick() {
+    if (!this.want.length) return;
+    const t0 = performance.now();
+    const c = this.s.cam;
+    this.want.sort((a, b) => (a.cx - c.x) ** 2 + (a.cy - c.y) ** 2 - ((b.cx - c.x) ** 2 + (b.cy - c.y) ** 2));
+    for (const w of this.want) {
+      if (performance.now() - t0 > this.budgetMs) break;
+      if (!this.tiles.has(w.key)) this.tiles.set(w.key, this._paint(w.k, w.i, w.j));
+    }
+    this.want.length = 0;
+  }
+  _drawLevel(ctx, k, v, onlyMissing = null) {
+    const s = this.s, ppu = s.cam.ppu, r = this._range(k, v), res = resOf(k);
+    const size = (TILE + PAD * 2) / res * ppu, off = PAD / res;
+    let missing = 0;
+    for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) {
+      const key = k + ':' + i + ':' + j, t = this.tiles.get(key);
+      if (t) {
+        t.used = this.frame;
+        // tiles overlap by their padding, so there are no seams even when drawn at fractional positions
+        ctx.drawImage(t.c, s.sx(i * r.unit - off), s.sy(j * r.unit - off), size, size);
+      } else {
+        missing++;
+        if (!onlyMissing) this.want.push({ key, k, i, j, cx: (i + 0.5) * r.unit, cy: (j + 0.5) * r.unit });
+      }
+    }
+    return missing;
+  }
+  draw(ctx) {
+    this.frame++;
+    if (!this.overview) this._overview();
+    const s = this.s, k = levelOf(this._res()), v = s.view(0.05);
+    if (k !== this.level) { this.prevLevel = this.level; this.level = k; }
+    // count missing first (cheap), then layer: overview → previous level → this level
+    const r = this._range(k, v);
+    let missing = 0;
+    for (let j = r.j0; j <= r.j1 && !missing; j++) for (let i = r.i0; i <= r.i1; i++) if (!this.tiles.has(k + ':' + i + ':' + j)) { missing++; break; }
+    if (missing) {
+      const o = OVERVIEW, ppu = s.cam.ppu;
+      ctx.drawImage(this.overview, s.sx(o.X0), s.sy(o.Y0), (o.X1 - o.X0) * ppu, (o.Y1 - o.Y0) * ppu);
+      if (this.prevLevel >= 0 && this.prevLevel !== k) this._drawLevel(ctx, this.prevLevel, v, true);
+    }
+    this._drawLevel(ctx, k, v);
+    // forget tiles that have not been on screen for a while
+    if (this.frame % 120 === 0 && this.tiles.size > 160) {
+      const old = [...this.tiles.entries()].sort((a, b) => a[1].used - b[1].used);
+      for (let n = 0; n < old.length - 140; n++) this.tiles.delete(old[n][0]);
+    }
+  }
+}
+
 export class Stage {
   constructor(container, qualityName = 'high') {
     this.canvas = document.createElement('canvas');
@@ -30,11 +147,8 @@ export class Stage {
     this.target = { x: 0, y: 0, ppu: 60 };
     this.layers = [];                 // objects with optional ground / collect / particles / overlay / glow / post passes
     this.list = [];
-    this.gcv = document.createElement('canvas');
-    this.gctx = this.gcv.getContext('2d', { alpha: false });
-    this.bake = null;                 // { X0, Y0, X1, Y1, ppu, dpr }
-    this.groundDirty = true;
-    this.paintGround = null;          // (ctx, X0, Y0, X1, Y1, px) painted in screen-space world units
+    this.paintGround = null;          // (ctx, X0, Y0, X1, Y1, px, opts) painted in screen-space world units
+    this.ground = new Ground(this);
     this.onResize = null;
     this.onQuality = null;
     this.fps = { t: 0, n: 0, slow: 0 };
@@ -42,12 +156,15 @@ export class Stage {
     this.resize(true);
   }
 
-  get dpr() { return Math.min(window.devicePixelRatio || 1, this.q.dpr); }
+  get dpr() {
+    const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+    return Math.max(0.75, Math.min(window.devicePixelRatio || 1, this.q.dpr, Math.sqrt(MAX_PIXELS / (w * h))));
+  }
   get width() { return this.vw; }
   get height() { return this.vh; }
   // device pixels per world unit at the camera's target zoom (sprites are painted for this)
-  get res() { return quantRes(this.target.ppu * this.dpr); }
-  resFor(scale) { return quantRes(this.target.ppu * this.dpr * scale); }
+  get res() { return quantRes(this.target.ppu * this._dpr); }
+  resFor(scale) { return quantRes(this.target.ppu * this._dpr * scale); }
 
   resize(force = false) {
     const w = Math.max(1, Math.round(window.innerWidth)), h = Math.max(1, Math.round(window.innerHeight));
@@ -56,7 +173,6 @@ export class Stage {
     this.vw = w; this.vh = h; this._dpr = dpr;
     this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = w + 'px'; this.canvas.style.height = h + 'px';
-    this.groundDirty = true;
     this.onResize?.(w, h);
   }
 
@@ -64,6 +180,7 @@ export class Stage {
     const q = QUALITY[name];
     if (!q || q === this.q) return;
     this.q = q;
+    this.ground.invalidate();
     this.resize(true);
     this.onQuality?.(q);
   }
@@ -93,7 +210,7 @@ export class Stage {
     const c = this.cam, t = this.target, k = 1 - Math.exp(-3.2 * dt);
     c.x += (t.x - c.x) * k; c.y += (t.y - c.y) * k;
     c.ppu += (t.ppu - c.ppu) * k;
-    if (Math.abs(t.ppu - c.ppu) < 0.02 * t.ppu && Math.abs(t.x - c.x) < 0.02 && Math.abs(t.y - c.y) < 0.02) { c.x = t.x; c.y = t.y; c.ppu = t.ppu; }
+    if (Math.abs(t.ppu - c.ppu) < 0.002 * t.ppu && Math.abs(t.x - c.x) < 0.002 && Math.abs(t.y - c.y) < 0.002) { c.x = t.x; c.y = t.y; c.ppu = t.ppu; }
     c.shake = Math.max(0, c.shake - dt * 3);
   }
   // screen-space world units → CSS pixels
@@ -114,37 +231,10 @@ export class Stage {
     return { X0: this.cam.x - hw - m, X1: this.cam.x + hw + m, Y0: this.cam.y - hh - m, Y1: this.cam.y + hh + m };
   }
 
-  // ------------------------------------------------------------------------------------------ ground layer
-  _bakeGround() {
-    const t = this.target, dpr = this.dpr;
-    const hw = this.vw / 2 / t.ppu, hh = this.vh / 2 / t.ppu;
-    const m = 0.25;
-    const X0 = t.x - hw * (1 + m), X1 = t.x + hw * (1 + m), Y0 = t.y - hh * (1 + m), Y1 = t.y + hh * (1 + m);
-    const W = Math.ceil((X1 - X0) * t.ppu * dpr), H = Math.ceil((Y1 - Y0) * t.ppu * dpr);
-    if (this.gcv.width !== W || this.gcv.height !== H) { this.gcv.width = W; this.gcv.height = H; }
-    const g = this.gctx;
-    const k = t.ppu * dpr;
-    g.setTransform(k, 0, 0, k, -X0 * k, -Y0 * k);
-    g.lineJoin = 'round'; g.lineCap = 'round';
-    this.paintGround?.(g, X0, Y0, X1, Y1, 1 / k);
-    this.bake = { X0, Y0, X1, Y1, ppu: t.ppu };
-    this.groundDirty = false;
-  }
-  // the cached ground is reused while it covers the view at a close enough scale; while the camera is still
-  // moving a slightly blurry (scaled) ground is fine, once it settles the scale must match
-  _groundValid() {
-    const b = this.bake, t = this.target, c = this.cam;
-    if (!b || this.groundDirty) return false;
-    const moving = Math.abs(t.ppu / c.ppu - 1) > 0.003 || Math.abs(t.x - c.x) > 0.01 || Math.abs(t.y - c.y) > 0.01;
-    if (Math.abs(b.ppu / c.ppu - 1) > (moving ? 0.3 : 0.02)) return false;
-    const hw = this.vw / 2 / c.ppu, hh = this.vh / 2 / c.ppu;
-    return c.x - hw >= b.X0 - 1e-3 && c.x + hw <= b.X1 + 1e-3 && c.y - hh >= b.Y0 - 1e-3 && c.y + hh <= b.Y1 + 1e-3;
-  }
-
   // ------------------------------------------------------------------------------------------ frame
   render(time) {
-    if (!this._groundValid()) this._bakeGround();
     const ctx = this.ctx, dpr = this._dpr;
+    this.ground.tick();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.imageSmoothingEnabled = true;
@@ -152,10 +242,9 @@ export class Stage {
       const s = this.cam.shake * this.cam.shake * 6;
       ctx.translate(Math.sin(time * 61) * s, Math.cos(time * 47) * s);
     }
-    const b = this.bake, ppu = this.cam.ppu;
     ctx.fillStyle = '#7cc458';
     ctx.fillRect(-20, -20, this.vw + 40, this.vh + 40);
-    ctx.drawImage(this.gcv, this.sx(b.X0), this.sy(b.Y0), (b.X1 - b.X0) * ppu, (b.Y1 - b.Y0) * ppu);
+    this.ground.draw(ctx);
     for (const l of this.layers) l.ground?.(ctx, this, time);
     const list = this.list;
     list.length = 0;

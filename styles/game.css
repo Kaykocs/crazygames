@@ -170,9 +170,9 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 /* ------------------------------------------------------------------ world labels, toasts, fly-ups */
 .labels { position: absolute; inset: 0; overflow: hidden; }
 .plot-tag {
-  position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 0.2em; padding: 0.2em 0.55em 0.2em 0.25em;
+  position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 0.2em; padding: 0.2em 0.55em 0.2em 0.25em;
   border-radius: 999px; background: rgba(255, 248, 232, 0.95); border: 0.14em solid #fff; font-weight: 700; font-size: max(11px, 0.78em);
-  box-shadow: 0 0.18em 0 rgba(74, 46, 30, 0.25); pointer-events: auto; cursor: pointer; transition: transform .15s var(--spring);
+  box-shadow: 0 0.18em 0 rgba(74, 46, 30, 0.25); pointer-events: auto; cursor: pointer; transition: scale .15s var(--spring); will-change: transform;
 }
 .plot-tag .ico { width: 1.4em; height: 1.4em; }
 .plot-tag.poor { padding: 0.18em; opacity: 0.55; background: rgba(255, 248, 232, 0.8); }
@@ -183,8 +183,8 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .plot-tag.afford { background: linear-gradient(180deg, #7fdc6a, var(--leaf)); color: #fff; box-shadow: 0 0.18em 0 var(--leaf-d); animation: tag-pulse 1.6s ease-in-out infinite; }
 .plot-tag.afford .num { text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
 .plot-tag.afford .ico:first-child { width: 0.9em; height: 0.9em; color: #fff; margin-left: 0.15em; }
-@keyframes tag-pulse { 50% { transform: translate(-50%, -50%) scale(1.08); } }
-.plot-tag:hover { transform: translate(-50%, -50%) scale(1.08); }
+@keyframes tag-pulse { 50% { scale: 1.08; } }
+.plot-tag:hover { scale: 1.1; }
 .plot-tag.shake { animation: shake .4s; }
 @keyframes shake { 20%, 60% { margin-left: -0.3em; } 40%, 80% { margin-left: 0.3em; } }
 .hover-tip { position: absolute; transform: translate(-50%, calc(-100% - 22px)); display: flex; align-items: center; gap: 0.35em; padding: 0.3em 0.7em 0.3em 0.45em; border-radius: 0.8em;

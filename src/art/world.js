@@ -225,8 +225,8 @@ export class World {
     return w;
   }
 
-  paintGround(ctx, X0, Y0, X1, Y1, px) {
-    paintLawn(ctx, X0, Y0, X1, Y1, px, { density: (X, Y) => this._density(X, Y), wild: (X, Y) => this._wild(X, Y) });
+  paintGround(ctx, X0, Y0, X1, Y1, px, opts = {}) {
+    paintLawn(ctx, X0, Y0, X1, Y1, px, { density: (X, Y) => this._density(X, Y), wild: (X, Y) => this._wild(X, Y), coarse: opts.coarse });
     // the tended garden: a softly lighter, mown clearing with a darker rim of longer grass
     softEllipse(ctx, 0, 0, 7.6, 7.6 * SQ * 1.1, '#b8ea8a', 0.3, 0.55);
     // wilder, deeper meadow beyond the fence
@@ -241,7 +241,7 @@ export class World {
       if (X < X0 - 1 || X > X1 + 1 || Y < Y0 - 1 || Y > Y1 + 1) continue;
       ctx.save(); ctx.translate(X, Y); B.paintStone(ctx, px, Math.round(st.z * 13 + 50), st.s); ctx.restore();
     }
-    this._paintPond(ctx, px);
+    if (X1 > POND.x - POND.rx - 1.5 && X0 < POND.x + POND.rx + 1.5 && Y1 > (POND.z - POND.rz - 1.5) * SQ && Y0 < (POND.z + POND.rz + 1.5) * SQ) this._paintPond(ctx, px);
   }
 
   _pondShape() {

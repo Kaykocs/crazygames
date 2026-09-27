@@ -29,33 +29,39 @@ export class Weather {
     for (const c of this.clouds) { c.x += c.sp * dt * (1 + this.k.rain * 1.5); if (c.x > 28) c.x = -28; }
   }
 
+  // one soft cloud-shaped shadow, painted once and stretched per cloud
+  _cloudSprite() {
+    if (this.cloudSpr) return this.cloudSpr;
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 160;
+    const g = c.getContext('2d');
+    for (const [dx, dy, k] of [[-0.42, 0, 0.62], [0.12, -0.12, 0.8], [0.5, 0.08, 0.56], [0, 0.18, 0.6]]) {
+      const x = 128 + dx * 128, y = 80 + dy * 110, r = k * 105;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, 'rgba(20,50,60,0.55)'); gr.addColorStop(0.6, 'rgba(20,50,60,0.3)'); gr.addColorStop(1, 'rgba(20,50,60,0)');
+      g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, r, r * 0.72, 0, 0, TAU); g.fill();
+    }
+    this.cloudSpr = c;
+    return c;
+  }
   _cloudShadows(ctx, s) {
     const ppu = s.cam.ppu;
-    const a = 0.1 + this.k.rain * 0.08 - this.k.night * 0.08;
-    if (a <= 0.01) return;
+    const a = 0.2 + this.k.rain * 0.16 - this.k.night * 0.16;
+    if (a <= 0.02) return;
+    const spr = this._cloudSprite();
+    ctx.globalAlpha = a;
     for (const c of this.clouds) {
-      const X = s.sx(c.x), Y = s.sy(c.z * SQ), r = c.r * ppu;
-      if (X + r * 1.6 < 0 || X - r * 1.6 > s.vw || Y + r < 0 || Y - r > s.vh) continue;
-      for (const [dx, dy, k] of [[-0.5, 0, 0.8], [0.3, -0.15, 1], [0.8, 0.1, 0.7]]) {
-        const g = ctx.createRadialGradient(X + dx * r, Y + dy * r * SQ, 0, X + dx * r, Y + dy * r * SQ, r * k);
-        g.addColorStop(0, `rgba(20,50,60,${a})`); g.addColorStop(0.6, `rgba(20,50,60,${a * 0.6})`); g.addColorStop(1, 'rgba(20,50,60,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.ellipse(X + dx * r, Y + dy * r * SQ, r * k, r * k * SQ * 1.1, 0, 0, TAU); ctx.fill();
-      }
+      const X = s.sx(c.x), Y = s.sy(c.z * SQ), w = c.r * 2.6 * ppu, h = w * 0.55;
+      if (X + w / 2 < 0 || X - w / 2 > s.vw || Y + h / 2 < 0 || Y - h / 2 > s.vh) continue;
+      ctx.drawImage(spr, X - w / 2, Y - h / 2, w, h);
     }
+    ctx.globalAlpha = 1;
   }
 
   // colour grading pass (after the world, before glows)
   overlay(ctx, s, time) {
     const W = s.vw, H = s.vh, k = this.k;
     this._cloudShadows(ctx, s);
-    // clear days: a whisper of warm sunlight from the upper left
-    const day = 1 - Math.max(k.night, k.rain);
-    if (day > 0.01) {
-      const g = ctx.createLinearGradient(0, 0, W, H);
-      g.addColorStop(0, `rgba(255,244,200,${0.16 * day})`); g.addColorStop(0.55, 'rgba(255,244,200,0)');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    }
     if (k.golden > 0.01) {
       ctx.globalCompositeOperation = 'multiply';
       ctx.fillStyle = rgba('#ffd9a0', k.golden * 0.55); ctx.fillRect(0, 0, W, H);
@@ -146,38 +152,23 @@ export class Weather {
       ctx.globalAlpha = 1;
       this.splash = this.splash.filter((p) => p.t < 0.3);
     } else if (this.drops.length) { this.drops.length = 0; this.splash.length = 0; }
-    // vignette
-    if (!this.vig || this.vig.w !== W || this.vig.h !== H) {
-      const c = document.createElement('canvas');
+    // vignette + warm sunlight from the upper left, baked into one small image (one full-screen draw)
+    const day = Math.round((1 - Math.max(k.night, k.rain)) * 20) / 20;
+    if (!this.vig || this.vig.w !== W || this.vig.h !== H || this.vig.day !== day) {
+      const c = this.vig?.c || document.createElement('canvas');
       c.width = Math.max(1, Math.round(W / 4)); c.height = Math.max(1, Math.round(H / 4));
       const g = c.getContext('2d');
+      g.clearRect(0, 0, c.width, c.height);
+      if (day > 0) {
+        const warm = g.createLinearGradient(0, 0, c.width, c.height);
+        warm.addColorStop(0, `rgba(255,244,200,${0.16 * day})`); warm.addColorStop(0.55, 'rgba(255,244,200,0)');
+        g.fillStyle = warm; g.fillRect(0, 0, c.width, c.height);
+      }
       const gr = g.createRadialGradient(c.width / 2, c.height * 0.48, Math.min(c.width, c.height) * 0.35, c.width / 2, c.height * 0.48, Math.hypot(c.width, c.height) * 0.62);
       gr.addColorStop(0, 'rgba(30,20,50,0)'); gr.addColorStop(1, 'rgba(30,20,50,0.38)');
       g.fillStyle = gr; g.fillRect(0, 0, c.width, c.height);
-      this.vig = { c, w: W, h: H };
+      this.vig = { c, w: W, h: H, day };
     }
     ctx.drawImage(this.vig.c, 0, 0, W, H);
-    // a whisper of paper grain so the flat colours read as an illustration, not a screen
-    if (this.q.glow !== false) {
-      if (!this.grain) {
-        const c = document.createElement('canvas');
-        c.width = c.height = 160;
-        const g = c.getContext('2d'), img = g.createImageData(160, 160);
-        let seed = 7;
-        for (let i = 0; i < img.data.length; i += 4) {
-          seed = (seed * 16807) % 2147483647;
-          const v = 128 + ((seed / 2147483647) - 0.5) * 120;
-          img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255;
-        }
-        g.putImageData(img, 0, 0);
-        this.grain = ctx.createPattern(c, 'repeat');
-      }
-      ctx.globalCompositeOperation = 'soft-light';
-      ctx.globalAlpha = 0.22;
-      ctx.fillStyle = this.grain;
-      ctx.fillRect(0, 0, W, H);
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
-    }
   }
 }

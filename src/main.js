@@ -87,6 +87,7 @@ class Game {
     };
     this.stage.onQuality = (q) => this._applyQuality(q);
     this.stage.resize(true);
+    this.stage.ground.fill();
     addEventListener('resize', () => this._layoutSoon());
     addEventListener('orientationchange', () => this._layoutSoon());
     window.visualViewport?.addEventListener('resize', () => this._layoutSoon());
@@ -469,13 +470,9 @@ class Game {
         return;
       }
       if (!down) {
-        if (e.pointerType === 'mouse' && !ui.busy) {
-          const i = view.pickPlot(p.x, p.y);
-          view.hoverPlot = i;
-          const seedHit = view.pickSeed(p.x, p.y) != null;
-          cv.style.cursor = seedHit || (i >= 0 && (g.plots[i].owned || g.canBuyPlot(i))) ? 'pointer' : 'grab';
-          ui.hoverInfo(p.x, p.y, seedHit ? `${icon('seed', 18)} New seed — click to collect` : this._plotInfo(i));
-        } else ui.hoverInfo(0, 0, null);
+        // hover is resolved once per frame in _frame (pointermove can fire far more often than we draw)
+        if (e.pointerType === 'mouse' && !ui.busy) this._hover = p;
+        else { this._hover = null; ui.hoverInfo(0, 0, null); }
         return;
       }
       if (Math.hypot(p.x - down.x, p.y - down.y) > 6) down.moved = true;
@@ -500,7 +497,7 @@ class Game {
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
     cv.addEventListener('wheel', (e) => { if (!ui.busy) { const p = pos(e); view.zoomAt(Math.exp(-Math.max(-120, Math.min(120, e.deltaY)) * 0.0022), p.x, p.y); } }, { passive: true });
-    cv.addEventListener('pointerleave', () => { view.hoverPlot = -1; ui.hoverInfo(0, 0, null); });
+    cv.addEventListener('pointerleave', () => { this._hover = null; view.hoverPlot = -1; ui.hoverInfo(0, 0, null); });
     // keyboard shortcuts (desktop)
     addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -695,9 +692,24 @@ class Game {
     this._frame(Math.min(raw, 1 / 20));
   }
 
+  _hoverTick() {
+    const p = this._hover;
+    if (!p) return;
+    this._hover = null;
+    const g = this.garden, ui = this.ui, view = this.view, cv = this.stage.canvas;
+    if (ui.busy) { ui.hoverInfo(0, 0, null); return; }
+    const i = view.pickPlot(p.x, p.y);
+    view.hoverPlot = i;
+    const seedHit = view.pickSeed(p.x, p.y) != null;
+    const cur = seedHit || (i >= 0 && (g.plots[i].owned || g.canBuyPlot(i))) ? 'pointer' : 'grab';
+    if (this._cursor !== cur) { this._cursor = cur; cv.style.cursor = cur; }
+    ui.hoverInfo(p.x, p.y, seedHit ? `${icon('seed', 18)} New seed — click to collect` : this._plotInfo(i));
+  }
+
   _frame(dt) {
     this.time = (this.time || 0) + dt;
     const g = this.garden;
+    this._hoverTick();
     g.tick(dt);
     this.view.update(dt, this.time);
     this.world.update(dt, this.time);

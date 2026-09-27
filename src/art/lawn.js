@@ -34,6 +34,8 @@ export function paintLawn(ctx, X0, Y0, X1, Y1, px, opts = {}) {
     }
   });
 
+  if (opts.coarse) return;          // low-res overview: colour only
+
   // 2. fine grass strokes (batched per tone)
   const paths = LAWN.blades.map(() => new Path2D());
   cells(X0, Y0, X1, Y1, 0.17, 0.13, 0.2, (i, j) => {
