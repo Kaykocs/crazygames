@@ -1,11 +1,12 @@
 // Renders the three CrazyGames cover images (landscape 1920x1080, portrait 800x1200, square 800x800) from the
-// game's ?cover= mode into covers/. Only the game title appears as text, as the cover rules require.
+// game's ?cover= mode into crazygames-upload/2-covers/. Only the game title appears as text, as the cover rules require.
 //   node tools/covers.mjs
 import * as esbuild from 'esbuild';
 import { chromium } from 'playwright';
 import { mkdirSync, readFileSync } from 'node:fs';
 
-mkdirSync('covers', { recursive: true });
+const OUT = 'crazygames-upload/2-covers';
+mkdirSync(OUT, { recursive: true });
 const ctx = await esbuild.context({ entryPoints: ['src/main.js'], bundle: true, outfile: 'game.js', format: 'iife', define: { __DEV__: 'false' }, logLevel: 'error' });
 const { port } = await ctx.serve({ servedir: '.', port: 0, host: '127.0.0.1' });
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -24,8 +25,8 @@ for (const [kind, [w, h]] of Object.entries(SIZES)) {
   await page.waitForTimeout(500);
   // a layout pass may have resized (cleared) the canvas while frozen: draw the final frame right before the shot
   await page.evaluate(() => __game.debug.sim(0.1));
-  await page.screenshot({ path: `covers/cover-${kind}-${w}x${h}.png`, animations: 'disabled' });
-  console.log('wrote', `covers/cover-${kind}-${w}x${h}.png`);
+  await page.screenshot({ path: `${OUT}/cover-${kind}-${w}x${h}.png`, animations: 'disabled' });
+  console.log('wrote', `${OUT}/cover-${kind}-${w}x${h}.png`);
   await page.close();
 }
 await browser.close();

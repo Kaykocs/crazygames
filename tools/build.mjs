@@ -33,6 +33,9 @@ await esbuild.build({
   logLevel: 'warning',
 });
 
+// the fonts' SIL Open Font License texts travel with the font files
+for (const f of ['OFL-Fredoka.txt', 'OFL-LilitaOne.txt']) writeFileSync(`dist/assets/fonts/${f}`, readFileSync(`assets/fonts/${f}`));
+
 // index.html: same file as dev, pointed at the built stylesheet
 let html = readFileSync('index.html', 'utf8');
 html = html.replace('href="styles/game.css"', 'href="game.css"');
@@ -58,3 +61,10 @@ const zipName = `build/${pkg.name}-${pkg.version}.zip`;
 rmSync(zipName, { force: true });
 execFileSync('zip', ['-r', '-q', '-X', '../' + zipName, '.'], { cwd: 'dist' });
 console.log(`  upload package: ${zipName} (${(statSync(zipName).size / 1024).toFixed(1)} KB)`);
+
+// the CrazyGames upload kit holds exactly what the developer portal asks for (see crazygames-upload/README.md)
+const kit = 'crazygames-upload/1-game';
+mkdirSync(kit, { recursive: true });
+for (const f of readdirSync(kit)) if (f.endsWith('.zip')) rmSync(join(kit, f));
+writeFileSync(join(kit, `${pkg.name}-${pkg.version}.zip`), readFileSync(zipName));
+console.log(`  copied to ${kit}/${pkg.name}-${pkg.version}.zip`);

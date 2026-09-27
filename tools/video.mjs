@@ -6,7 +6,8 @@
 // 1/30 s per frame), so the result is perfectly smooth no matter how slowly the headless browser renders. Shots are
 // staged on a mature garden, captured to their own clips, then cut together with short crossfades.
 //
-//   node tools/video.mjs [--only=landscape|portrait] [--keep]     → video/buzz-and-bloom-<format>.mp4
+//   node tools/video.mjs [--only=landscape|portrait] [--keep] [--shots=a,b] [--cut]
+//     → crazygames-upload/3-videos/trailer-<format>-<WxH>.mp4 (clips are kept in build/video-clips with --keep)
 import * as esbuild from 'esbuild';
 import { chromium } from 'playwright';
 import { spawn, execFileSync } from 'node:child_process';
@@ -478,7 +479,7 @@ const clipDur = (file) => {
 };
 
 // ------------------------------------------------------------------------------------------ main
-mkdirSync('video/clips', { recursive: true });
+mkdirSync('build/video-clips', { recursive: true });
 const ctx0 = await esbuild.context({ entryPoints: ['src/main.js'], bundle: true, outfile: 'game.js', format: 'iife', define: { __DEV__: 'false' }, logLevel: 'error' });
 const { port } = await ctx0.serve({ servedir: '.', port: 0, host: '127.0.0.1' });
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--force-color-profile=srgb'] });
@@ -502,7 +503,7 @@ for (const name of only) {
   const rec = new Recorder(page, cdp, fmt, rng(name === 'landscape' ? 11 : 23));
   for (const shot of ORDER) {
     const t0 = Date.now();
-    const file = `video/clips/${name}-${shot}.mp4`;
+    const file = `build/video-clips/${name}-${shot}.mp4`;
     await rec.open(file);
     await SHOTS[shot](rec, fmt);
     const dur = await rec.close();
@@ -512,7 +513,7 @@ for (const name of only) {
   // the final cut stays under 20 s: the land-buying shot sits out and each shot's closing hold is capped
   // [in-point, max length] per shot: the decorate shot skips the walk to the shop so the windmill reveal fits
   const CUT = { cross: [0, 3.3], discover: [0, 4.8], combo: [0, 2.9], golden: [0, 2.5], night: [0, 2.0], decorate: [fmt.touch ? 0.5 : 1.1, 4.0], finale: [0, 2.0] };
-  const clips = Object.keys(CUT).map((shot) => ({ shot, file: `video/clips/${name}-${shot}.mp4` })).filter((c) => existsSync(c.file))
+  const clips = Object.keys(CUT).map((shot) => ({ shot, file: `build/video-clips/${name}-${shot}.mp4` })).filter((c) => existsSync(c.file))
     .map((c) => { const [ss, len] = CUT[c.shot]; return { file: c.file, ss, dur: Math.min(clipDur(c.file) - ss, len) }; });
   const total = clips.reduce((s, c) => s + c.dur, 0) - XF * (clips.length - 1);
   const inputs = clips.flatMap((c) => ['-ss', c.ss.toFixed(3), '-t', c.dur.toFixed(3), '-i', c.file]);
@@ -523,7 +524,8 @@ for (const name of only) {
     filter += `${last}[${i}:v]xfade=transition=fade:duration=${XF}:offset=${off.toFixed(3)}${out};`;
     last = out;
   }
-  const outFile = `video/buzz-and-bloom-${name}.mp4`;
+  mkdirSync('crazygames-upload/3-videos', { recursive: true });
+  const outFile = `crazygames-upload/3-videos/trailer-${name}-${fmt.size[0]}x${fmt.size[1]}.mp4`;
   execFileSync(FF, ['-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-filter_complex', filter.replace(/;$/, ''), '-map', '[v]',
     '-c:v', 'libx264', '-preset', 'slow', '-crf', '19', '-pix_fmt', 'yuv420p', '-r', String(FPS), '-movflags', '+faststart', outFile], { stdio: 'inherit' });
   console.log(`[${name}] → ${outFile}  ${total.toFixed(1)} s, ${(statSync(outFile).size / 1e6).toFixed(1)} MB`);
@@ -531,4 +533,4 @@ for (const name of only) {
 }
 await browser.close();
 await ctx0.dispose();
-if (!args.keep) rmSync('video/clips', { recursive: true, force: true });
+if (!args.keep) rmSync('build/video-clips', { recursive: true, force: true });

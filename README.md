@@ -6,7 +6,10 @@ harvest quickly for combos, discover all 128 species for the Flower Book, fill c
 odd golden bee and decorate your garden. There's no fail state and nothing punishes you, and the garden keeps
 growing while you're away.
 
-![Landscape cover](covers/cover-landscape-1920x1080.png)
+![Landscape cover](crazygames-upload/2-covers/cover-landscape-1920x1080.png)
+
+**Submitting to CrazyGames?** Everything the developer portal asks for (the game zip, covers, trailers,
+description, controls, tags and form answers) is in [`crazygames-upload/`](crazygames-upload/README.md).
 
 ## Play it locally
 
@@ -35,12 +38,13 @@ Tapping the quest chip shows where to do the current quest.
 ## Build for CrazyGames
 
 ```bash
-npm run build        # → dist/ (index.html, game.js, game.css, 2 fonts) and build/buzz-and-bloom-1.0.0.zip
+npm run build        # → dist/ and build/buzz-and-bloom-1.0.0.zip, copied into crazygames-upload/1-game/
 ```
 
-Upload the zip, which has `index.html` at its root. The whole game is ~490 KB (≈185 KB gzipped) in 5 files,
-all with relative paths. There are no image or audio assets: every flower, planter, prop, critter and UI icon
-is painted procedurally with Canvas 2D at runtime, and all sound and music is synthesised with Web Audio.
+The zip has `index.html` at its root: the whole game is ~500 KB (≈190 KB gzipped) in 7 files (page, script,
+stylesheet, 2 fonts and their licences), all with relative paths. There are no image or audio assets: every
+flower, planter, prop, critter and UI icon is painted procedurally with Canvas 2D at runtime, and all sound and
+music is synthesised with Web Audio.
 
 ## Tests & tools
 
@@ -48,7 +52,8 @@ is painted procedurally with Canvas 2D at runtime, and all sound and music is sy
 npm test             # headless play-through: follows the tutorial's hand with real taps/drags, then the first quest (fails on any console error)
 npm run shots        # beauty screenshots of a mature garden in every weather → shots/
 node tools/shot.mjs --dist --only=desktop,phone,landscape,small --play   # same checks against dist/
-node tools/covers.mjs                # store covers → covers/ (1920x1080, 800x1200, 800x800)
+node tools/covers.mjs                # store covers → crazygames-upload/2-covers/ (1920x1080, 800x1200, 800x800)
+node tools/video.mjs                 # preview trailers → crazygames-upload/3-videos/ (1920x1080 and 1080x1920)
 node tools/lab.mjs <scene>           # art lab sheets (flowers, variants, big, garden, props, built, ui) → shots/
 npm run sim                          # headless economy simulation (balancing)
 ```
@@ -86,7 +91,7 @@ Game design notes (genetics tables, economy numbers, progression) are in [DESIGN
   `muteAudio` from the SDK settings overrides the game's own audio. Completion % reports Flower Book progress.
 - **Basic Launch**: no ads anywhere (`ADS_ENABLED = false` in `src/config.js`), and nothing is gated behind an ad.
 - **Saves**: the SDK Data module when available (localStorage fallback).
-- **Size / files**: well under 50 MB (20 MB mobile), 5 files, relative paths only.
+- **Size / files**: ~190 KB zipped (well under the 50 MB / 20 MB mobile limits), 7 files, relative paths only.
 - **Mobile**: touch-first controls, portrait and landscape layouts, safe-area insets, no hover-only actions,
   legible at 800×450 / 821×462 (11 px text floor).
 - **Browser hygiene**: no page scroll from the wheel, arrow keys or space; no context menu; text selection
@@ -95,14 +100,6 @@ Game design notes (genetics tables, economy numbers, progression) are in [DESIGN
 
 ## Submission notes
 
-1. Upload `build/buzz-and-bloom-1.0.0.zip` (run `npm run build` first).
-2. In the submission form, choose **"Yes, using the Data Module"** for saving progress.
-3. Tick **mobile support** (portrait + landscape both work) and confirm the game respects `muteAudio`.
-4. Covers: `covers/cover-landscape-1920x1080.png`, `covers/cover-portrait-800x1200.png`,
-   `covers/cover-square-800x800.png`. Only the title appears as text, as required.
-5. Check the name "Buzz & Bloom" is unique on the portal before submitting.
-6. Preview videos: `video/buzz-and-bloom-landscape.mp4` (1920×1080) and `video/buzz-and-bloom-portrait.mp4`
-   (1080×1920), ~22 s, 30 fps, silent, real gameplay with a human-paced cursor/finger: crossing two blooms by
-   dragging pollen, tap-to-grow into a new species, a harvest combo, catching a golden bee, a starry night,
-   buying land and sowing, placing a windmill, and the whole garden under a rainbow. Re-record with
-   `node tools/video.mjs` (add `--only=landscape|portrait`).
+See [`crazygames-upload/README.md`](crazygames-upload/README.md): the files in upload order, the title,
+description, controls, tips, category and tags ready to copy, the answers for the submission form, and a
+short checklist.
