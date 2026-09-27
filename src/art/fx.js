@@ -75,6 +75,10 @@ export class FX {
       this._p({ x, y, z, vx: Math.cos(a) * sp, vy: 2 + R() * 2.4, vz: Math.sin(a) * sp * 0.7, g: 6, drag: 1.6, size: 0.14 + R() * 0.1, life: 1.2 + R() * 0.8, spr: SPR.petal(colors[i % colors.length]), spin: (R() - 0.5) * 9, floor: 0.02, flip: 6 + R() * 6 });
     }
   }
+  drift(x, y, z, color) {
+    const R = this.R;
+    this._p({ x, y, z, vx: 0.25 + R() * 0.3, vy: -0.35, g: 0.05, drag: 0.4, wander: 1.2, size: 0.08 + R() * 0.04, life: 7 + R() * 3, spr: SPR.petal(color), spin: (R() - 0.5) * 3, floor: 0.01, flip: 3 + R() * 3, fadeAt: 0.8 });
+  }
   sparkles(x, y, z, color = '#fff6c2', n = 10, spread = 0.6, big = 1) {
     const R = this.R;
     for (let i = 0, m = this.n(n); i < m; i++) {
@@ -136,7 +140,7 @@ export class FX {
       const d = Math.exp(-p.drag * dt);
       p.vx *= d; p.vz *= d; p.vy = p.vy * d - p.g * dt;
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-      if (p.y < p.floor) { p.y = p.floor; p.vy = 0; p.vx *= 0.6; p.vz *= 0.6; p.spin *= 0.5; }
+      if (p.y < p.floor) { p.y = p.floor; p.vy = 0; p.vx *= 0.6; p.vz *= 0.6; p.spin *= 0.5; p.wander = 0; p.flip = 0; }
       p.rot += p.spin * dt;
       L[j++] = p;
     }

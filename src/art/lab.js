@@ -7,6 +7,8 @@ import { SQ, HY } from './view3q.js';
 import { hexToWorld, shapeHexagon } from '../game/hex.js';
 import * as N from './nature.js';
 import * as B from './built.js';
+import { iconURL, visitorURL } from './uiart.js';
+import { decorThumbURL } from './world.js';
 
 const params = new URLSearchParams(location.search);
 const scene = params.get('scene') || 'flowers';
@@ -126,5 +128,20 @@ scenes.built = () => {
   at(1060, 800, (c, px) => B.paintStone(c, px, 4, 0.8));
   at(1250, 800, (c, px) => B.paintSign(c, px));
 };
-(scenes[scene] || scenes.flowers)();
-window.__labDone = true;
+scenes.ui = async () => {
+  ctx.fillStyle = '#fff4dc'; ctx.fillRect(0, 0, W, H);
+  const load = (url) => new Promise((r) => { const i = new Image(); i.onload = () => r(i); i.src = url; });
+  const names = ['coin', 'basket', 'book', 'gear', 'can', 'shovel', 'gift', 'trophy', 'star', 'bee', 'seed', 'sun', 'rain', 'golden', 'night', 'rainbow', 'target', 'lock', 'clock', 'up_bees', 'up_fert', 'up_market', 'up_wings', 'up_pouch', 'up_gnome'];
+  let i = 0;
+  for (const n of names) { const im = await load(iconURL(n, 72)); ctx.drawImage(im, 20 + (i % 13) * 92, 20 + Math.floor(i / 13) * 92, 72, 72); i++; }
+  // small sizes
+  i = 0;
+  for (const n of names.slice(0, 13)) { const im = await load(iconURL(n, 24)); ctx.drawImage(im, 20 + i * 40, 215, 24, 24); i++; }
+  const vis = [['bunny', '#f3d9c9'], ['fox', '#ff9a4d'], ['hedgehog', '#b88a63'], ['frog', '#7ccc5c'], ['duck', '#ffe06a'], ['cat', '#c9c3d9'], ['bear', '#a6764f'], ['owl', '#b59a7a'], ['queen', '#ffc928']];
+  i = 0;
+  for (const [k, c] of vis) { const im = await load(visitorURL(k, c, 96)); ctx.drawImage(im, 20 + i * 110, 270, 96, 96); i++; }
+  const dec = ['birdbath', 'bench', 'arch', 'lanterns', 'windmill', 'fountain', 'gazebo', 'greenhouse', 'statue', 'rainbow'];
+  i = 0;
+  for (const d of dec) { const im = await load(decorThumbURL(d, 110)); ctx.fillStyle = '#ffffff'; ctx.fillRect(20 + i * 125, 400, 110, 110); ctx.drawImage(im, 20 + i * 125, 400, 110, 110); i++; }
+};
+(async () => { await (scenes[scene] || scenes.flowers)(); window.__labDone = true; })();

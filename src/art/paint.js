@@ -28,17 +28,19 @@ export class Sprite {
 export const sprite = (w, h, ax, ay, res, paint) => new Sprite(w, h, ax, ay, res, paint);
 
 // Draw a sprite with its anchor at screen (x, y). `ppu` = CSS pixels per world unit on screen.
-export function drawSprite(ctx, s, x, y, ppu, sx = 1, sy = 1, rot = 0, alpha = 1) {
+// `skew` leans the sprite about its anchor (wind): points above the anchor shift sideways, the base stays put.
+export function drawSprite(ctx, s, x, y, ppu, sx = 1, sy = 1, rot = 0, alpha = 1, skew = 0) {
   if (!s) return;
   const k = ppu / s.res;
   if (alpha !== 1) ctx.globalAlpha = alpha;
-  if (rot === 0 && sx === sy && sx === 1) {
+  if (rot === 0 && sx === sy && sx === 1 && skew === 0) {
     ctx.drawImage(s.c, x - s.ax * ppu, y - s.ay * ppu, s.c.width * k, s.c.height * k);
   } else {
     ctx.save();
     ctx.translate(x, y);
     if (rot) ctx.rotate(rot);
     ctx.scale(sx, sy);
+    if (skew) ctx.transform(1, 0, skew, 1, 0, 0);
     ctx.drawImage(s.c, -s.ax * ppu, -s.ay * ppu, s.c.width * k, s.c.height * k);
     ctx.restore();
   }

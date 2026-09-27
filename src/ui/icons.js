@@ -1,6 +1,8 @@
 // Inline SVG art for the UI: a procedural flower icon for every genotype, visitor portraits and UI icons.
 import { COLORS } from '../game/genetics.js';
 import { flowerIconURL, seedIconURL } from '../art/flowers.js';
+import { iconURL, hasPainted, visitorURL } from '../art/uiart.js';
+import { decorThumbURL } from '../art/world.js';
 
 let uid = 0;
 const id = (p) => `${p}${++uid}`;
@@ -69,6 +71,8 @@ const FACES = {
   queen: () => `<ellipse cx="-24" cy="-26" rx="14" ry="9" fill="#e8f6ff" stroke="#8ab" stroke-width="2" transform="rotate(-30 -24 -26)"/><ellipse cx="24" cy="-26" rx="14" ry="9" fill="#e8f6ff" stroke="#8ab" stroke-width="2" transform="rotate(30 24 -26)"/><circle r="28" fill="#ffc928" stroke="#5a3a10" stroke-width="3"/><path d="M-26 8 C -10 14 10 14 26 8" stroke="#2a1d12" stroke-width="7" fill="none"/><path d="M-16 -30 L-10 -44 L-2 -34 L0 -48 L2 -34 L10 -44 L16 -30 Z" fill="#ffd84d" stroke="#b07b10" stroke-width="2.5" stroke-linejoin="round"/>`,
 };
 export function visitorSVG(kind, color, size = 44) {
+  const url = visitorURL(kind, color, size);
+  if (url) return `<img class="ico visitor" src="${url}" width="${size}" height="${size}" alt="" draggable="false">`;
   const face = (FACES[kind] || FACES.bunny)(color);
   const eyeY = kind === 'owl' ? -4 : kind === 'frog' ? -24 : -4;
   const eyeX = kind === 'frog' ? 16 : 11;
@@ -120,6 +124,7 @@ const I = {
 I.up_can = I.can;
 
 export function icon(name, size = 22, cls = '') {
+  if (hasPainted(name)) return `<img class="ico ${cls}" src="${iconURL(name, size)}" width="${size}" height="${size}" alt="" draggable="false">`;
   const body = I[name];
   if (!body) return '';
   return `<svg class="ico ${cls}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${body}</svg>`;
@@ -139,6 +144,8 @@ const DECOR = {
   rainbow: I.rainbow + '<path d="M2 18h5M17 18h5" stroke="#c98a5a" stroke-width="2.4" stroke-linecap="round"/>',
 };
 export function decorIcon(idName, size = 44) {
+  const url = decorThumbURL(idName, size);
+  if (url) return `<img class="ico" src="${url}" width="${size}" height="${size}" alt="" draggable="false">`;
   return `<svg class="ico" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${DECOR[idName] || ''}</svg>`;
 }
 

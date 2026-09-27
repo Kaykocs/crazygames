@@ -68,6 +68,8 @@ class Game {
     }
     this.view = new GardenView(this.stage, this.garden, this.fx, QUALITY[this.qName]);
     this.view.nightK = () => this.world.weather.k.night;
+    this.view.world = this.world;
+    this.world.fx = this.fx;
     this.stage.layers = [this.world, this.view, this.fx];
     this.ui = new UI($('ui'), this.garden, this._uiApi());
     this.ui.renderPouch();

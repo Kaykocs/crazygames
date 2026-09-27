@@ -346,7 +346,8 @@ export class GardenView {
     const w = this.garden.pos[e.i];
     const buyable = this.garden.s.tutorial >= 99 && this.garden.canBuyPlot(e.i);
     const k = buyable ? 0.82 : 1;
-    drawSprite(ctx, propSprite(e.kind, e, s.res), s.sx(w.x + e.dx), s.sy((w.z + e.dz) * SQ), s.cam.ppu * k);
+    const sway = this.world ? this.world.wind(w.x + e.dx, w.z + e.dz, e.kind, this.time) : 0;
+    drawSprite(ctx, propSprite(e.kind, e, s.res), s.sx(w.x + e.dx), s.sy((w.z + e.dz) * SQ), s.cam.ppu * k, 1, 1, 0, 1, sway);
   }
 
   // magical blooms glow after dark (drawn additively after the colour grade)

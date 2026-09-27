@@ -9,9 +9,11 @@ import * as N from './nature.js';
 import * as B from './built.js';
 import * as D from './decor.js';
 import { Weather } from './weather.js';
+import { decorURL } from './uiart.js';
 import { ease, clamp } from '../core/math.js';
 
 const TAU = Math.PI * 2;
+const SWAY = { grass: 0.09, clump: 0.07, lavender: 0.06, reeds: 0.07, bush: 0.018, tree: 0.012, fir: 0.008, pot: 0.02 };
 export const POND = { x: 9.1, z: -2.3, rx: 2.35, rz: 1.85 };
 export const FENCE_Z = -8.9;
 export const GATE = [-2.45, -0.75];
@@ -176,6 +178,8 @@ export class World {
     this.path = stonePath();
     this.decor = new Decor(this);
     this.weather = new Weather(quality);
+    this.life = new Life(this);
+    this.fx = null;                 // set by the game so the world can shed petals
     this.time = 0;
     this.pond = this._pondShape();
     this.lilies = [
@@ -191,8 +195,15 @@ export class World {
 
   sprite(kind, p, res) { return propSprite(kind, p, res); }
 
+  // wind: soft plants lean and bob, trees and bushes barely breathe
+  wind(x, z, kind, time) {
+    const amp = SWAY[kind];
+    if (!amp) return 0;
+    const gust = 1 + this.weather.k.rain * 1.6;
+    return (Math.sin(time * 1.6 + x * 0.55 + z * 0.35) * 0.7 + Math.sin(time * 3.1 + x * 1.7) * 0.3) * amp * gust;
+  }
   _drawProp(ctx, s, p) {
-    drawSprite(ctx, this.sprite(p.kind, p, s.res), s.sx(p.x), s.sy(p.z * SQ), s.cam.ppu);
+    drawSprite(ctx, this.sprite(p.kind, p, s.res), s.sx(p.x), s.sy(p.z * SQ), s.cam.ppu, 1, 1, 0, 1, this.wind(p.x, p.z, p.kind, this.time));
   }
 
   // ------------------------------------------------------------------------------------------ ground
@@ -298,6 +309,15 @@ export class World {
   update(dt, time) {
     this.time = time;
     this.weather.update(dt, time);
+    this.life.update(dt, time);
+    // blossom trees shed a petal now and then
+    if (this.fx) {
+      const v = this.stage.view(2);
+      for (const p of this.props) {
+        if (p.v !== 'blossom' || p.x < v.X0 || p.x > v.X1 || p.z * SQ < v.Y0 - 3 || p.z * SQ > v.Y1 + 3) continue;
+        if (Math.random() < dt * 0.9 * (this.q.ambient ?? 1)) this.fx.drift(p.x + (Math.random() - 0.5) * 3 * p.s, 3.2 * p.s, p.z + (Math.random() - 0.3) * 1.2, Math.random() < 0.6 ? '#ffc4dc' : '#ffffff');
+      }
+    }
     this.decor.update(dt, time);
     for (const k of this.koi) k.a += k.sp * dt;
     if (Math.random() < dt * 0.8) this.ripples.push({ x: (Math.random() - 0.5) * POND.rx * 1.2, z: (Math.random() - 0.5) * POND.rz * 1.1, t: 0 });
@@ -339,6 +359,7 @@ export class World {
   }
 
   collect(list, s) {
+    this.life.collect(list, s);
     const v = s.view(5);
     for (const p of this.props) {
       const Y = p.z * SQ;
@@ -348,7 +369,7 @@ export class World {
     this.decor.collect(list, s);
   }
 
-  overlay(ctx, s, time) { this.weather.overlay(ctx, s, time); }
+  overlay(ctx, s, time) { this.life.shadows(ctx, s, time); this.weather.overlay(ctx, s, time); }
   glow(ctx, s, time) { this.decor.glow(ctx, s, time, this.weather.k.night); this.weather.glow(ctx, s, time); }
   post(ctx, s, time) { this.weather.post(ctx, s, time); }
 
@@ -445,3 +466,89 @@ class Decor {
 // shared little sprites
 World.prototype.shadowSpr = function (s) { return this.bank.get('shadow', s.res, (r) => new Sprite(2.2, 1.2, 1.1, 0.6, r, (c) => softEllipse(c, 0, 0, 1, 0.5, '#173512', 0.55, 0.2))); };
 World.prototype.glowSpr = function (s, color) { return this.bank.get('glow' + color, s.res, (r) => new Sprite(2.4, 2.4, 1.2, 1.2, r, (c) => softEllipse(c, 0, 0, 1.15, 1.15, color, 0.8, 0.05))); };
+
+// ------------------------------------------------------------------------------------------ ambient life
+// a dragonfly patrolling the pond and flocks of birds whose shadows sweep over the lawn
+function paintDragonfly(ctx, px) {
+  const lw = Math.max(0.03, px * 1.2);
+  for (const [a, l] of [[-0.35, 0.62], [0.35, 0.62], [-0.2, 0.5], [0.2, 0.5]]) {
+    ctx.save(); ctx.rotate(a + (a < 0 ? -Math.PI / 2 : Math.PI / 2));
+    ctx.beginPath(); ctx.ellipse(0, -l * 0.5, 0.09, l * 0.5, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(220,245,255,0.6)'; ctx.fill(); ctx.strokeStyle = 'rgba(60,110,140,0.6)'; ctx.lineWidth = lw; ctx.stroke();
+    ctx.restore();
+  }
+  ctx.beginPath(); ctx.ellipse(0, 0.15, 0.05, 0.42, 0, 0, TAU);
+  const g = ctx.createLinearGradient(0, -0.3, 0, 0.6); g.addColorStop(0, '#3fd0e0'); g.addColorStop(1, '#2a6fd6');
+  ctx.fillStyle = g; ctx.fill(); ctx.strokeStyle = '#153a6a'; ctx.lineWidth = lw; ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, -0.3, 0.09, 0, TAU); ctx.fillStyle = '#2aa7c8'; ctx.fill(); ctx.stroke();
+}
+function paintBirdShadow(ctx) {
+  ctx.fillStyle = 'rgba(20,40,30,1)';
+  ctx.beginPath(); ctx.moveTo(-0.9, -0.1); ctx.quadraticCurveTo(-0.4, -0.35, 0, 0.05); ctx.quadraticCurveTo(0.4, -0.35, 0.9, -0.1); ctx.quadraticCurveTo(0.4, -0.1, 0, 0.25); ctx.quadraticCurveTo(-0.4, -0.1, -0.9, -0.1); ctx.fill();
+}
+class Life {
+  constructor(world) {
+    this.w = world;
+    this.fly = { x: POND.x, z: POND.z, y: 0.8, tx: POND.x, tz: POND.z, ty: 0.8, t: 0, face: 0, sortY: 0, draw: null };
+    this.fly.draw = (ctx, s, t) => this._drawFly(ctx, s, t);
+    this.birds = null;
+    this.birdT = 8 + Math.random() * 10;
+  }
+  update(dt, time) {
+    const f = this.fly;
+    f.t -= dt;
+    if (f.t <= 0) {
+      f.t = 0.8 + Math.random() * 2.2;
+      const a = Math.random() * TAU, r = Math.random();
+      f.tx = POND.x + Math.cos(a) * POND.rx * 0.9 * r; f.tz = POND.z + Math.sin(a) * POND.rz * 0.9 * r; f.ty = 0.5 + Math.random() * 0.9;
+    }
+    const k = 1 - Math.exp(-dt * 5);
+    const px = f.x;
+    f.x += (f.tx - f.x) * k; f.z += (f.tz - f.z) * k; f.y += (f.ty - f.y) * k;
+    if (Math.abs(f.x - px) > dt * 0.1) f.face = Math.atan2(f.tz - f.z, f.tx - f.x) + Math.PI / 2;
+    f.sortY = f.z * SQ + 0.05;
+    this.birdT -= dt;
+    if (!this.birds && this.birdT <= 0) {
+      const v = this.w.stage.view(2), dir = Math.random() < 0.5 ? 1 : -1;
+      const z0 = (v.Y0 + (v.Y1 - v.Y0) * (0.2 + Math.random() * 0.6)) / SQ;
+      this.birds = { x: dir > 0 ? v.X0 - 3 : v.X1 + 3, z: z0, dir, vz: (Math.random() - 0.5) * 1.2, end: dir > 0 ? v.X1 + 3 : v.X0 - 3, n: 1 + Math.floor(Math.random() * 3) };
+    }
+    if (this.birds) {
+      const b = this.birds;
+      b.x += b.dir * 5.5 * dt; b.z += b.vz * dt;
+      if ((b.dir > 0 && b.x > b.end) || (b.dir < 0 && b.x < b.end)) { this.birds = null; this.birdT = 18 + Math.random() * 25; }
+    }
+  }
+  collect(list, s) {
+    const v = s.view(2);
+    if (POND.x > v.X0 - 3 && POND.x < v.X1 + 3) list.push(this.fly);
+  }
+  _drawFly(ctx, s, time) {
+    const f = this.fly, ppu = s.cam.ppu;
+    const X = s.sx(f.x), Y = s.sy(f.z * SQ - f.y * HY);
+    drawSprite(ctx, this.w.shadowSpr(s), s.sx(f.x) + f.y * 0.2 * ppu, s.sy(f.z * SQ), ppu * 0.12, 1, 1, 0, 0.25);
+    const spr = propBank.get('dragonfly', s.resFor(0.4), (r) => new Sprite(1.6, 1.6, 0.8, 0.8, r, paintDragonfly));
+    drawSprite(ctx, spr, X, Y, ppu * 0.4, 1 + Math.sin(time * 60) * 0.08, 1, f.face);
+  }
+  shadows(ctx, s, time) {
+    const b = this.birds;
+    if (!b) return;
+    const ppu = s.cam.ppu;
+    const spr = propBank.get('birdshadow', s.resFor(0.8), (r) => new Sprite(2, 1, 1, 0.5, r, paintBirdShadow));
+    const night = this.w.weather.k.night;
+    for (let i = 0; i < b.n; i++) {
+      const x = b.x - b.dir * i * 1.4, z = b.z + (i % 2 ? 0.9 : -0.7) * Math.min(1, i);
+      const flap = 0.6 + 0.4 * Math.sin(time * 7 + i * 2);
+      drawSprite(ctx, spr, s.sx(x), s.sy(z * SQ), ppu * 0.75, b.dir, flap, 0, 0.13 * (1 - night));
+    }
+  }
+}
+
+// shop thumbnail of a decoration, painted by the same code as the garden
+export function decorThumbURL(id, size) {
+  if (!PAINT[id]) return null;
+  if (id === 'windmill') {
+    return decorURL(id, size, (ctx, px) => { PAINT.windmill(ctx, px); ctx.save(); ctx.translate(D.WINDMILL_HUB[0], D.WINDMILL_HUB[1]); ctx.rotate(0.35); PAINT.sails(ctx, px); ctx.restore(); }, [3.0, 4.3, 1.5, 4.05]);
+  }
+  return decorURL(id, size, (ctx, px) => PAINT[id](ctx, px, { seed: 1 }), BOX[id]());
+}

@@ -31,7 +31,7 @@ html, body {
 }
 button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 svg { display: block; overflow: visible; }
-img.flower-ico { display: block; object-fit: contain; -webkit-user-drag: none; user-select: none; pointer-events: none; }
+img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag: none; user-select: none; pointer-events: none; flex: none; }
 
 #ui { position: fixed; inset: 0; pointer-events: none; font-size: var(--u); z-index: 10; }
 #ui > * { pointer-events: none; }
@@ -368,7 +368,7 @@ img.flower-ico { display: block; object-fit: contain; -webkit-user-drag: none; u
 /* ------------------------------------------------------------------ layouts */
 /* portrait phones: orders across the top, under the HUD */
 @media (max-aspect-ratio: 4/5) {
-  .orders { left: calc(0.5em + var(--safe-l)); right: calc(0.5em + var(--safe-r)); top: calc(3.7em + var(--safe-t)); flex-direction: row; justify-content: center; align-items: stretch; }
+  .orders { left: calc(0.5em + var(--safe-l)); right: calc(0.5em + var(--safe-r)); top: calc(4.6em + var(--safe-t)); flex-direction: row; justify-content: center; align-items: stretch; }
   .order { width: auto; flex: 1 1 0; min-width: 0; max-width: 12em; flex-direction: column; padding: 0.3em 0.3em 0.45em; gap: 0.1em; text-align: center; }
   .order .who { position: absolute; left: -0.35em; top: -0.35em; width: 2em; height: 2em; border: 0.12em solid #fff; }
   .order .who svg { width: 1.95em; height: 1.95em; }
@@ -402,3 +402,89 @@ img.flower-ico { display: block; object-fit: contain; -webkit-user-drag: none; u
 #cover-title.square { top: 4%; }
 #cover-title.square span { font-size: 14.5vw; }
 #cover-title.square span + span { transform: rotate(-2deg) translateX(0.35em); }
+
+/* ================================================================== game skin
+   Ink outlines and chunky 3D edges so the HTML UI matches the illustrated garden. Later rules override the
+   base layout rules above; sizes are unchanged. */
+:root { --ol: #5b3a24; --ol-soft: rgba(91, 58, 36, 0.5); --edge: rgba(222, 170, 100, 0.45); }
+
+.pill { background: linear-gradient(180deg, #fffdf6 0%, #fff0d2 100%); border: 0.14em solid var(--ol);
+  box-shadow: inset 0 0.14em 0 rgba(255, 255, 255, 0.95), inset 0 -0.16em 0 var(--edge), 0 0.2em 0 var(--ol), 0 0.45em 0.8em rgba(40, 20, 10, 0.28); }
+.round-btn { background: radial-gradient(circle at 50% 30%, #fffef8, #ffe6b8 75%); border: 0.14em solid var(--ol);
+  box-shadow: inset 0 -0.18em 0 var(--edge), 0 0.2em 0 var(--ol), 0 0.45em 0.8em rgba(40, 20, 10, 0.28); }
+.round-btn:active { transform: translateY(0.14em); box-shadow: inset 0 -0.1em 0 var(--edge), 0 0.06em 0 var(--ol); }
+.round-btn .ico { width: 1.85em; height: 1.85em; }
+.dot { border-color: var(--ol); }
+
+/* level: a honeycomb cell */
+.lvl-badge { background: none; border: 0; box-shadow: none; filter: drop-shadow(0 0.18em 0 var(--ol)) drop-shadow(0 0.35em 0.4em rgba(40, 20, 10, 0.3)); }
+.lvl-badge::before, .lvl-badge::after { content: ''; position: absolute; inset: 0; clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); }
+.lvl-badge::before { background: var(--ol); inset: -0.12em -0.14em; }
+.lvl-badge::after { background: radial-gradient(circle at 40% 30%, #fff1b0, #ffc93a 55%, #e8900f); }
+.lvl-badge span { position: relative; z-index: 1; }
+.xp { border: 0.14em solid var(--ol); background: #fff6e0; box-shadow: 0 0.2em 0 var(--ol), 0 0.45em 0.8em rgba(40, 20, 10, 0.28); }
+.xp-track { background: #ecd4a8; box-shadow: inset 0 0.12em 0 rgba(90, 50, 20, 0.25); }
+.xp-fill { background: linear-gradient(180deg, #a6ee7c 0%, #5cc15a 55%, #3f9a3e 100%); box-shadow: inset 0 0.12em 0 rgba(255, 255, 255, 0.55); }
+.xp-label { border: 0.1em solid var(--ol-soft); }
+
+.chip { background: linear-gradient(180deg, #fffdf6, #fff0d6); border: 0.12em solid var(--ol-soft); box-shadow: 0 0.14em 0 var(--ol-soft), 0 0.3em 0.6em rgba(40, 20, 10, 0.18); }
+.chip.weather.active { background: linear-gradient(180deg, #fff8cf, #ffe38a); }
+.goal .bar { box-shadow: inset 0 0.08em 0 rgba(90, 50, 20, 0.25); }
+
+.order { background: linear-gradient(180deg, #fffdf6, #fff0d2); border: 0.14em solid var(--ol);
+  box-shadow: inset 0 0.12em 0 #fff, 0 0.2em 0 var(--ol), 0 0.45em 0.8em rgba(40, 20, 10, 0.25); }
+.order.special { background: linear-gradient(180deg, #fff6c8, #ffd970); }
+.order .who { background: radial-gradient(circle at 50% 35%, #f2fbff, #cfe8f7); box-shadow: inset 0 0 0 0.1em var(--ol-soft); }
+.order .who img { width: 2.5em; height: 2.5em; }
+.order .need .n { border: 0.1em solid #fff; }
+
+.pouch { background: linear-gradient(180deg, rgba(255, 252, 242, 0.97), rgba(255, 238, 206, 0.97)); border: 0.16em solid var(--ol);
+  box-shadow: inset 0 0.15em 0 #fff, 0 0.22em 0 var(--ol), 0 0.5em 1em rgba(40, 20, 10, 0.3); }
+.seedchip { background: radial-gradient(circle at 50% 35%, #ffffff, #fff3da); border: 0.13em solid var(--ol-soft); box-shadow: inset 0 -0.2em 0 #f3e0bd, 0 0.14em 0 var(--ol-soft); }
+.seedchip.sel { border-color: #2f7a34; box-shadow: inset 0 -0.2em 0 #d6f2c6, 0 0.16em 0 #2f7a34, 0 0 0 0.2em rgba(92, 193, 90, 0.4); background: radial-gradient(circle at 50% 35%, #ffffff, #e8fbdc); }
+.seedchip .n, .seedchip .new { border-color: #fff; }
+
+.tool { background: linear-gradient(180deg, #fffdf6, #ffe9c2); border: 0.15em solid var(--ol);
+  box-shadow: inset 0 0.15em 0 #fff, inset 0 -0.25em 0 var(--edge), 0 0.24em 0 var(--ol), 0 0.55em 1em rgba(40, 20, 10, 0.3); }
+.tool:active { transform: translateY(0.18em); box-shadow: inset 0 -0.15em 0 var(--edge), 0 0.06em 0 var(--ol); }
+.tool .ico { width: 2.6em; height: 2.6em; }
+.tool.shop { background: linear-gradient(180deg, #ffe7a8, #ffc24d); box-shadow: inset 0 0.15em 0 rgba(255, 255, 255, 0.8), inset 0 -0.25em 0 rgba(200, 110, 10, 0.45), 0 0.24em 0 var(--ol), 0 0.55em 1em rgba(40, 20, 10, 0.3); }
+.tool.on { background: linear-gradient(180deg, #e8ffe0, #aeea98); box-shadow: inset 0 0.15em 0 #fff, inset 0 -0.25em 0 rgba(60, 150, 50, 0.4), 0 0.24em 0 #2f7a34, 0 0 0 0.22em rgba(92, 193, 90, 0.45); border-color: #2f7a34; }
+.tool .badge { border-color: var(--ol); background: linear-gradient(180deg, #7fcfff, #3a9be0); }
+
+.plot-tag { border: 0.12em solid var(--ol); box-shadow: 0 0.16em 0 var(--ol); background: linear-gradient(180deg, #fffdf6, #fff0d2); }
+.plot-tag.afford { background: linear-gradient(180deg, #9ae884, #4fb54a); box-shadow: inset 0 0.12em 0 rgba(255, 255, 255, 0.5), 0 0.16em 0 var(--ol); }
+.plot-tag.poor { background: rgba(255, 250, 236, 0.9); }
+
+.toast { background: linear-gradient(180deg, #6b4630, #4a2e1e); box-shadow: 0 0 0 0.12em rgba(255, 255, 255, 0.85), 0 0.35em 0.8em rgba(0, 0, 0, 0.3); }
+.toast.good { background: linear-gradient(180deg, #5cc15a, #37923b); }
+.toast.warn { background: linear-gradient(180deg, #ff7aa3, #d8457a); }
+.toast.gold { background: linear-gradient(180deg, #ffc24d, #e08a14); }
+
+/* panels & cards: ink border, honey frame, ink rim */
+.panel, .card-pop { border: 0.2em solid var(--ol); box-shadow: 0 0 0 0.3em #ffc94d, 0 0 0 0.44em var(--ol), 0 0.7em 0 0.44em rgba(60, 30, 10, 0.3), 0 1.6em 3em rgba(40, 20, 10, 0.4); }
+.panel-head { padding-top: 0.85em; }
+.panel-title, .card-pop .kicker { position: relative; z-index: 0; padding: 0.04em 0.7em 0.14em; }
+.panel-title::before, .card-pop .kicker::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: 0.38em;
+  background: linear-gradient(180deg, #ffa3c2 0%, #f06a95 60%, #d84f7e 100%); border: 0.09em solid var(--ol);
+  box-shadow: inset 0 0.08em 0 rgba(255, 255, 255, 0.5), 0 0.1em 0 var(--ol);
+}
+.card-pop .kicker { display: inline-block; }
+.card-pop .kicker::before { background: linear-gradient(180deg, #ffd873 0%, #ffb52e 60%, #e8900f 100%); }
+.close { border: 0.13em solid var(--ol); background: linear-gradient(180deg, #ff9ab8, #e8567f); box-shadow: inset 0 0.1em 0 rgba(255, 255, 255, 0.5), 0 0.18em 0 var(--ol); }
+.close:active { box-shadow: 0 0.05em 0 var(--ol); }
+.tab { background: #f7e7c8; border: 0.12em solid var(--ol-soft); box-shadow: 0 0.14em 0 var(--ol-soft); }
+.tab.on { background: linear-gradient(180deg, #ffd46a, #ffab2e); border-color: var(--ol); box-shadow: inset 0 0.1em 0 rgba(255, 255, 255, 0.6), 0 0.14em 0 var(--ol); text-shadow: 0 0.08em 0 rgba(90, 50, 10, 0.6); }
+
+.btn { border: 0.13em solid var(--ol); box-shadow: inset 0 0.13em 0 rgba(255, 255, 255, 0.45), 0 0.22em 0 var(--ol); text-shadow: 0 0.08em 0 rgba(30, 60, 20, 0.55); }
+.btn:active, .btn.honey:active { box-shadow: inset 0 0.1em 0 rgba(255, 255, 255, 0.35), 0 0.06em 0 var(--ol); }
+.btn.honey, .btn.sky, .btn.rose { box-shadow: inset 0 0.13em 0 rgba(255, 255, 255, 0.45), 0 0.22em 0 var(--ol); }
+.btn.honey { text-shadow: 0 0.08em 0 rgba(120, 60, 10, 0.6); }
+.btn.plain { box-shadow: inset 0 0.13em 0 rgba(255, 255, 255, 0.6), 0 0.22em 0 var(--ol); }
+
+.card, .row { border: 0.13em solid rgba(91, 58, 36, 0.3); box-shadow: 0 0.18em 0 rgba(91, 58, 36, 0.3); background: linear-gradient(180deg, #ffffff, #fffaf0); }
+.row .art { background: radial-gradient(circle at 50% 35%, #fffdf6, #ffeccb); box-shadow: inset 0 0 0 0.1em rgba(91, 58, 36, 0.2); }
+.row .art .ico { width: 2.5em; height: 2.5em; }
+.book-cell { border-color: rgba(91, 58, 36, 0.22); }
+.tut-bubble { box-shadow: 0 0 0 0.14em rgba(255, 255, 255, 0.9), 0 0.4em 1em rgba(0, 0, 0, 0.3); background: linear-gradient(180deg, #6b4630, #4a2e1e); }
