@@ -153,12 +153,17 @@ for (const name of only) {
     await shot('quest-hint');
     // the first quest: tap the quest chip for a hint, then buy a plot where the hand points (once the camera settled)
     await page.waitForFunction(() => { const c = __game.stage.cam, t = __game.stage.target; return Math.abs(c.x - t.x) < 0.01 && Math.abs(c.y - t.y) < 0.01 && Math.abs(c.ppu - t.ppu) < 0.3; }, null, { timeout: 60000 }).catch(() => {});
-    let hint = await page.evaluate(() => { const h = __game.hint && __game._hintSpec(__game.hint.kind); return h?.hand?.tap || null; });
+    // a level-up card may still be open (it closes like a player would close it)
+    for (let k = 0; k < 8 && (await page.evaluate(() => !!document.querySelector('.card-pop:not(.leaving)'))); k++) {
+      await page.locator('.card-pop:not(.leaving) .btn').first().click().catch(() => {});
+      await page.waitForTimeout(500);
+    }
+    const hintNow = () => page.evaluate(() => { const h = __game.hint && __game._hintSpec(__game.hint.kind); return h?.hand?.tap || null; });
+    let hint = await hintNow();
     if (!hint) {
       const chip = await page.evaluate(() => { const r = document.querySelector('.chip.goal').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
       await tap(chip.x, chip.y);
-      await page.waitForTimeout(600);
-      hint = await page.evaluate(() => { const h = __game.hint && __game._hintSpec(__game.hint.kind); return h?.hand?.tap || null; });
+      for (let k = 0; k < 10 && !hint; k++) { await page.waitForTimeout(300); hint = await hintNow(); }
     }
     console.log(`[${name}] quest hint points at`, JSON.stringify(hint));
     if (hint) { await tap(hint.x, hint.y); await page.waitForTimeout(900); }

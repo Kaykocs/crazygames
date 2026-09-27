@@ -12,7 +12,6 @@ import { GardenView, mutColor } from './art/garden.js';
 import { UI, fmt } from './ui/ui.js';
 import { flowerSVG, seedSVG, icon, visitorSVG } from './ui/icons.js';
 import { SOIL_Y } from './art/planter.js';
-import { SQ } from './art/view3q.js';
 import { loadSave, saveSoon, flush, wipeSave, loadSettings, saveSettings } from './core/save.js';
 import { DEFAULT_SETTINGS, DEV } from './config.js';
 import { COLORS, SHAPES, C, S, M, MUTATIONS, flowerName, makeFlower, speciesId, rarity } from './game/genetics.js';
@@ -211,12 +210,14 @@ class Game {
       skipTutorial: () => self._finishTutorial(true),
       questHint: () => self._questHint(),
       onLayout: () => self._layoutSoon(),
+      catchGoldenAt: (cx, cy) => self._goldenAt(cx, cy),
     };
   }
 
   _layoutSoon() {
     clearTimeout(this._layoutT);
-    this._layoutT = setTimeout(() => { this.stage.resize(true); this.view.setSafeArea(this.ui.insets()); }, 60);
+    // the canvas is only resized when the window really changed (a forced resize clears it and re-frames with a jump)
+    this._layoutT = setTimeout(() => { this.stage.resize(); this.view.setSafeArea(this.ui.insets()); }, 60);
   }
 
   // ------------------------------------------------------------------------------------------ game events
@@ -993,12 +994,24 @@ class Game {
     this.goldenT = (this.goldenT ?? 60) - dt;
     if (this.goldenT > 0) return;
     this.goldenT = 75 + Math.random() * 75;
-    const st = this.stage, cx = st.cam.x, cz = st.cam.y / SQ;
+    // it spends most of its flight over the middle of the clear play area (never behind the HUD, where it can't be tapped)
+    const st = this.stage, sa = this.view.safe, cx = st.cam.x;
+    const mid = st.unproject((sa.left + st.vw - sa.right) / 2, (sa.top + st.vh - sa.bottom) / 2, 1.7);
     const span = st.vw / st.cam.ppu / 2 + 1.2, left = Math.random() < 0.5;
-    const z0 = cz - 1.5 + Math.random() * 2, z1 = cz - 1.5 + Math.random() * 2;
-    gb.start({ x: cx + (left ? -span : span), z: z0 }, { x: cx + (left ? span : -span), z: z1 }, 11);
+    const z0 = mid.z - 1.5 + Math.random() * 2, z1 = mid.z - 1.5 + Math.random() * 2;
+    mid.x += (Math.random() - 0.5) * 1.5; mid.z += (Math.random() - 0.5) * 0.8;
+    gb.start({ x: cx + (left ? -span : span), z: z0 }, { x: cx + (left ? span : -span), z: z1 }, 11, mid);
     audio.play('golden');
     if ((g.s.stats.goldenSeen || 0) < 2) { g.s.stats.goldenSeen = (g.s.stats.goldenSeen || 0) + 1; this.ui.toast(`${icon('bee')} A <b>golden bee</b>! Tap it quickly!`, 'gold', 3); }
+  }
+  // a golden bee under the finger (client coordinates) is caught even where a world label sits on top of it
+  _goldenAt(cx, cy) {
+    const gb = this.view.golden;
+    if (!gb.on || gb.caught) return false;
+    const r = this.stage.canvas.getBoundingClientRect(), q = gb.screen(this.stage);
+    if (Math.hypot(q.x - (cx - r.left), q.y - (cy - r.top)) >= Math.max(52, this.stage.cam.ppu * 0.75)) return false;
+    this._poke(); this._catchGolden();
+    return true;
   }
   _catchGolden() {
     const gb = this.view.golden, p = gb.screen(this.stage);

@@ -12,6 +12,30 @@ export const fmt = (n) => {
   if (n < 1e9) return (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
   return (n / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B';
 };
+// The widest text a number of this size can show (fmt's format, '0' standing for any digit): counters get a box this
+// wide, so they only resize when the number changes size, never with every digit (the font has no tabular digits).
+const NUM_SHAPES = [[10, '0'], [100, '00'], [1e3, '000'], [1e4, '0,000'], [1e5, '00.0K'], [1e6, '000K'], [1e7, '0.00M'], [1e8, '00.00M'], [1e9, '000.00M'], [Infinity, '000.00B']];
+const numShape = (n) => NUM_SHAPES.find(([lim]) => n < lim)[1];
+const _measure = document.createElement('canvas').getContext('2d');
+// width of `text` in an element's font plus its padding and border, in em of that element (digits measured as '0')
+function boxEm(e, text) {
+  const cs = getComputedStyle(e), fs = parseFloat(cs.fontSize) || 14;
+  _measure.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const extra = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+  return (_measure.measureText(text.replace(/\d/g, '0')).width + (extra || 0)) / fs + 0.02;
+}
+// Run `change` (DOM edits inside `box`), then let the children it moved glide from where they were (FLIP). It
+// animates the `translate` property, so it never fights a CSS transform animation running on the same element.
+function glide(box, change, ms = 300) {
+  const before = new Map([...box.children].map((c) => [c, c.getBoundingClientRect()]));
+  change();
+  for (const c of box.children) {
+    const b = before.get(c);
+    if (!b || !b.width) continue;
+    const a = c.getBoundingClientRect(), dx = b.left - a.left, dy = b.top - a.top;
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) c.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }], { duration: ms, easing: 'cubic-bezier(.2, .8, .3, 1)' });
+  }
+}
 const fmtTime = (s) => { s = Math.max(0, Math.ceil(s)); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}:${String(s % 60).padStart(2, '0')}`; };
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const WEATHER_NAMES = { clear: 'Sunny', rain: 'Rain shower', golden: 'Golden hour', night: 'Starry night', rainbow: 'Rainbow!' };
@@ -31,7 +55,7 @@ export class UI {
     this.dirty = { pouch: true, orders: true, tools: true, hud: true };
     this._build();
     this._warmIcons();
-    document.fonts?.ready.then(() => this._fitPouchHead());
+    document.fonts?.ready.then(() => { this._fitPouchHead(); this._coinShape = this._xpShape = null; });
   }
 
   // Paint the Flower Book icons a few at a time while the player is busy elsewhere, so opening the book is instant.
@@ -124,23 +148,49 @@ export class UI {
     this.subEl = sub;
   }
 
-  // HUD insets for camera framing (pixels)
+  // HUD insets for camera framing (pixels). They must not follow transient HUD content (visitors coming and going,
+  // quest text changing), or the whole garden slides back and forth: the orders area is reserved at a fixed size
+  // as soon as visitors are unlocked, and measured sizes only ever grow until the window itself changes.
   insets() {
     const H = window.innerHeight, W = window.innerWidth;
     const b = this.bottomEl.getBoundingClientRect();
     const t = this.topEl.getBoundingClientRect();
-    const o = this.ordersEl.getBoundingClientRect();
     const portrait = W / H < 0.8;
-    // portrait: toasts sit just under the orders row and the chips just above the bottom bar, whose sizes vary
-    this.root.style.setProperty('--orders-b', `${Math.round(o.height ? o.bottom : t.bottom)}px`);
-    this.root.style.setProperty('--bar-h', `${Math.round(H - b.top)}px`);
-    this._fitPouchHead();
+    const key = `${W}x${H}`;
+    if (this._insKey !== key) { this._insKey = key; this._ordW = 0; this._ordB = 0; this._subR = 0; }
+    this._layoutVars();
+    const u = parseFloat(getComputedStyle(this.root).fontSize) || 14;
+    const ordersOn = this._ordersOn = this.g.has('orders') && this.g.s.tutorial >= 99;
+    let o = this.ordersEl.getBoundingClientRect();
+    if (!o.height && ordersOn) o = this._probeOrders();
+    if (o.height) { this._ordW = Math.max(this._ordW, W - o.left); this._ordB = Math.max(this._ordB, o.bottom); }
     let top = t.bottom + 6, right = 8, left = 8;
-    if (portrait) top = Math.max(top, (o.height ? o.bottom : t.bottom) + 8);
-    else if (o.height) right = Math.max(right, W - o.left + 6);
+    if (ordersOn) {
+      if (portrait) top = Math.max(top, (this._ordB || t.bottom + 4.6 * u) + 8);
+      else right = Math.max(right, (this._ordW || 14 * u) + 6);
+    }
     const s = this.subEl.getBoundingClientRect();
-    if (!portrait && s.height) left = Math.max(left, s.right * 0.35);
+    if (s.height) this._subR = Math.max(this._subR, s.right);
+    if (!portrait && this._subR) left = Math.max(left, this._subR * 0.35);
     return { top, bottom: H - b.top + 10, left, right };
+  }
+  // the size the orders area takes with a visitor in it (an invisible sample card, measured and removed at once)
+  _probeOrders() {
+    const probe = el('div', 'order', `<div class="who">${visitorSVG('bunny', '#f3d9c9', 40)}</div><div class="want"><b>Red flower</b><small>${icon('coin')} 45</small></div><div class="need">${flowerSVG({ c1: 0, c2: 3, shape: 0, pattern: 0, mut: 0 }, { size: 36 })}</div><div class="ago"><i></i></div>`);
+    probe.style.visibility = 'hidden';
+    this.ordersEl.appendChild(probe);
+    const r = this.ordersEl.getBoundingClientRect();
+    probe.remove();
+    return r;
+  }
+  // CSS positions that follow the HUD (toasts under the orders row, chips above the bottom bar): no camera involved
+  _layoutVars() {
+    const H = window.innerHeight;
+    const t = this.topEl.getBoundingClientRect(), o = this.ordersEl.getBoundingClientRect(), b = this.bottomEl.getBoundingClientRect();
+    const ob = `${Math.round(o.height ? o.bottom : t.bottom)}px`, bh = `${Math.round(H - b.top)}px`;
+    if (this._ob !== ob) { this._ob = ob; this.root.style.setProperty('--orders-b', ob); }
+    if (this._bh !== bh) { this._bh = bh; this.root.style.setProperty('--bar-h', bh); }
+    this._fitPouchHead();
   }
 
   // ------------------------------------------------------------------------------------------ per-frame
@@ -155,6 +205,8 @@ export class UI {
     }
     const cs = fmt(this.coinsShown);
     if (this.coinsNum.textContent !== cs) this.coinsNum.textContent = cs;
+    const cShape = numShape(Math.floor(this.coinsShown));
+    if (this._coinShape !== cShape) { this._coinShape = cShape; this.coinsNum.style.minWidth = `${boxEm(this.coinsNum, cShape).toFixed(3)}em`; }
     // level / xp
     const lv = String(s.level);
     if (this.lvlBadge.firstChild.textContent !== lv) this.lvlBadge.firstChild.textContent = lv;
@@ -163,11 +215,14 @@ export class UI {
     if (this._xw !== xw) { this._xw = xw; this.xpFill.style.width = xw; }
     const xl = `${fmt(s.xp)} / ${fmt(need)} XP`;
     if (this.xpLabel.textContent !== xl) this.xpLabel.textContent = xl;
+    const xShape = `${numShape(Math.max(s.xp, need - 1))} / ${fmt(need)} XP`;
+    if (this._xpShape !== xShape) { this._xpShape = xShape; this.xpLabel.style.minWidth = `${boxEm(this.xpLabel, xShape).toFixed(3)}em`; }
     // weather chip
     const w = s.weather;
     const wk = s.tutorial < 99 ? 'clear' : w.kind;
     const wLeft = w.until - s.t;
-    const wHtml = `${weatherIcon(wk)}<span>${WEATHER_NAMES[wk]}</span>${s.tutorial >= 99 ? `<span class="t">${wk === 'clear' ? 'next ' : ''}${fmtTime(wLeft)}</span>` : ''}`;
+    const wt = `${wk === 'clear' ? 'next ' : ''}${fmtTime(wLeft)}`;
+    const wHtml = `${weatherIcon(wk)}<span>${WEATHER_NAMES[wk]}</span>${s.tutorial >= 99 ? `<span class="t" style="min-width:${(wt.length * 0.56).toFixed(2)}em">${wt}</span>` : ''}`;
     if (this._wHtml !== wHtml) { this._wHtml = wHtml; this.weatherChip.innerHTML = wHtml; this.weatherChip.classList.toggle('active', wk !== 'clear'); }
     // goal chip: the current starter quest (with its reward), then the achievement ladder
     const quest = g.currentQuest();
@@ -201,6 +256,9 @@ export class UI {
     if (this.dirty.orders) this.renderOrders();
     this._orderAges();
     this._updatePlotTags();
+    // visitors unlocking reserves their column once (the only time orders move the camera)
+    const ordersOn = g.has('orders') && s.tutorial >= 99;
+    if (ordersOn !== this._ordersOn) { this._ordersOn = ordersOn; this.api.onLayout?.(); }
     // the "back to the garden" button shows while the player has moved the view away
     const off = !!this.api.view?.offCenter;
     if (off !== this._homeOn) { this._homeOn = off; this.homeBtn.classList.toggle('show', off); }
@@ -355,28 +413,49 @@ export class UI {
   }
 
   // ------------------------------------------------------------------------------------------ orders
+  // Each visitor keeps their card while their order lives: only a newcomer's card pops in, a card whose order
+  // changed is updated in place, and the others glide to their new places (nothing re-animates or jumps).
   renderOrders() {
     this.dirty.orders = false;
-    const s = this.g.s;
-    this.ordersEl.innerHTML = '';
+    const s = this.g.s, box = this.ordersEl;
     const list = [];
     if (s.special && !s.special.done) list.push(['special', s.special]);
     s.orders.forEach((o, k) => { if (o) list.push([k, o]); });
-    for (const [k, o] of list) {
-      const v = o.special ? { id: 'queen', name: 'Queen Bee', color: '#ffc928' } : VISITORS[o.visitor];
-      // a patterned request needs a second colour, or the pattern is painted in the petal colour and can't be seen
-      const reqG = { c1: o.req.c1 ?? 3, c2: o.req.pattern ? secondColor(o.req.c1 ?? 3) : null, shape: o.req.shape ?? 0, pattern: o.req.pattern ?? 0, mut: o.req.mut ?? 0 };
-      const generic = o.req.c1 == null;
-      const card = el('div', 'order hit' + (o.special ? ' special' : ''),
-        `<div class="who">${visitorSVG(v.id, v.color, 40)}</div>
-         <div class="want"><b>${o.special ? '★ ' : ''}${orderText(o.req)}</b><small>${icon('coin')} ${fmt(o.reward)}</small></div>
-         <div class="need">${generic && o.req.shape == null ? rainbowQ(o.req) : flowerSVG(reqG, { size: 36 })}${o.req.pattern ? patternBadge(generic ? { c1: 3, c2: 7, pattern: o.req.pattern } : reqG) : ''}${o.qty > 1 ? `<span class="n">${o.got}/${o.qty}</span>` : ''}</div>
-         ${o.special ? '' : '<div class="ago"><i></i></div>'}`);
-      card.dataset.k = k;
-      card.onclick = () => this.orderDetails(k, o, v);
-      this.ordersEl.appendChild(card);
-    }
-    this.api.onLayout?.();
+    const cards = this._orderCards ||= new WeakMap();
+    const keep = new Set();
+    let prev = null;
+    glide(box, () => {
+      for (const [k, o] of list) {
+        const v = o.special ? { id: 'queen', name: 'Queen Bee', color: '#ffc928' } : VISITORS[o.visitor];
+        // a patterned request needs a second colour, or the pattern is painted in the petal colour and can't be seen
+        const reqG = { c1: o.req.c1 ?? 3, c2: o.req.pattern ? secondColor(o.req.c1 ?? 3) : null, shape: o.req.shape ?? 0, pattern: o.req.pattern ?? 0, mut: o.req.mut ?? 0 };
+        const generic = o.req.c1 == null;
+        const html = `<div class="who">${visitorSVG(v.id, v.color, 40)}</div>
+           <div class="want"><b>${o.special ? '★ ' : ''}${orderText(o.req)}</b><small>${icon('coin')} ${fmt(o.reward)}</small></div>
+           <div class="need">${generic && o.req.shape == null ? rainbowQ(o.req) : flowerSVG(reqG, { size: 36 })}${o.req.pattern ? patternBadge(generic ? { c1: 3, c2: 7, pattern: o.req.pattern } : reqG) : ''}${o.qty > 1 ? `<span class="n">${o.got}/${o.qty}</span>` : ''}</div>
+           ${o.special ? '' : '<div class="ago"><i></i></div>'}`;
+        let card = cards.get(o);
+        if (!card || card.classList.contains('done')) {
+          card = el('div', 'order hit enter' + (o.special ? ' special' : ''));
+          card.onanimationend = (e) => { if (e.target === card) card.classList.remove('enter'); };
+          cards.set(o, card);
+        }
+        if (card._html !== html) { card._html = html; card.innerHTML = html; }
+        card.dataset.k = k;
+        card.onclick = () => this.orderDetails(k, o, v);
+        keep.add(card);
+        let at = prev ? prev.nextSibling : box.firstChild;
+        while (at && at.classList.contains('done')) at = at.nextSibling;       // a fulfilled card leaves on its own
+        if (at !== card) box.insertBefore(card, at);
+        prev = card;
+      }
+      for (const c of [...box.children]) if (!keep.has(c) && !c.classList.contains('done')) c.remove();
+    });
+    this._orderAges();
+    this._layoutVars();
+    // the camera only re-frames if the reserved orders area turns out bigger than estimated (converges at once)
+    const W = window.innerWidth, H = window.innerHeight, r = this.ordersEl.getBoundingClientRect();
+    if (r.height && ((W / H < 0.8 && r.bottom > this._ordB + 2) || (W / H >= 0.8 && W - r.left > this._ordW + 2))) this.api.onLayout?.();
   }
   _orderAges() {
     for (const c of this.ordersEl.children) {
@@ -404,8 +483,11 @@ export class UI {
     });
   }
   orderDone(k) {
-    const c = [...this.ordersEl.children].find((x) => x.dataset.k === String(k));
-    if (c) { c.classList.add('done'); setTimeout(() => { this.dirty.orders = true; }, 650); } else this.dirty.orders = true;
+    const c = [...this.ordersEl.children].find((x) => x.dataset.k === String(k) && !x.classList.contains('done'));
+    if (!c) { this.dirty.orders = true; return; }
+    // it plays its thank-you exit (the next render leaves it alone), then the cards under it slide up
+    c.classList.add('done');
+    setTimeout(() => { if (c.isConnected) glide(this.ordersEl, () => c.remove()); this.dirty.orders = true; }, 650);
   }
   orderScreenPos(k) {
     const c = [...this.ordersEl.children].find((x) => x.dataset.k === String(k));
@@ -432,7 +514,8 @@ export class UI {
         t = el('button', 'plot-tag', '');
         // bought on release: a tap's synthetic click can be re-targeted to the canvas by the browser's touch
         // adjustment for small targets, so it isn't reliable on phones (click stays for keyboard activation)
-        t.onpointerup = (ev) => { if (ev.button > 0) return; ev.stopPropagation(); this.api.buyPlot(i, t); };
+        t.onpointerdown = (ev) => { t._gold = !!this.api.catchGoldenAt?.(ev.clientX, ev.clientY); };   // the golden bee flying past wins
+        t.onpointerup = (ev) => { if (ev.button > 0) return; ev.stopPropagation(); if (t._gold) { t._gold = false; return; } this.api.buyPlot(i, t); };
         t.onclick = (ev) => { ev.stopPropagation(); if (ev.detail === 0) this.api.buyPlot(i, t); };
         this.labels.appendChild(t);
         this.plotTags.set(i, t);
@@ -516,7 +599,7 @@ export class UI {
   _bumpCoins() {
     if (this._bump && this._bump.playState === 'running' && this._bump.currentTime < 80) return;
     this._bump?.cancel();
-    this._bump = this.coinsEl.animate([{ scale: 1 }, { scale: 1.14 }, { scale: 1 }], { duration: 220, easing: 'ease-out' });
+    this._bump = this.coinsEl.animate([{ scale: 1 }, { scale: 1.06 }, { scale: 1 }], { duration: 180, easing: 'ease-out' });
   }
 
   flySeed(x, y, gHtml) {
@@ -575,8 +658,9 @@ export class UI {
     const t = el('div', `toast ${kind}`, html);
     t.style.setProperty('--life', `${life}s`);
     this.toasts.appendChild(t);
-    while (this.toasts.children.length > 3) this.toasts.firstChild.remove();
-    setTimeout(() => t.remove(), (life + 0.45) * 1000);
+    // the ones below slide up when a toast goes (instead of jumping)
+    while (this.toasts.children.length > 3) { const f = this.toasts.firstChild; glide(this.toasts, () => f.remove()); }
+    setTimeout(() => { if (t.isConnected) glide(this.toasts, () => t.remove()); }, (life + 0.45) * 1000);
   }
 
   // ------------------------------------------------------------------------------------------ cards

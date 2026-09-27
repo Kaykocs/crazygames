@@ -55,10 +55,10 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 }
 .pill .ico { width: 1.75em; height: 1.75em; }
 .pill .num { min-width: 2.2em; font-variant-numeric: tabular-nums; }
-.coins.bump { animation: bump .35s var(--spring); }
-@keyframes bump { 30% { transform: scale(1.14); } }
 
 .lvl { display: flex; align-items: center; gap: 0; position: relative; }
+.hud-top > .lvl { position: absolute; left: 50%; top: 0; transform: translateX(-50%); }   /* centred: never nudged by the coin count or the buttons */
+@media (max-width: 359px) { .hud-top .xp { width: 5em; } }
 .lvl-badge {
   width: 2.7em; height: 2.7em; border-radius: 50%; display: grid; place-items: center; z-index: 2;
   background: radial-gradient(circle at 35% 30%, #ffe9a8, var(--honey) 60%, var(--honey-d)); border: 0.18em solid #fff; box-shadow: var(--shadow);
@@ -81,7 +81,7 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .round-btn .ico { width: 1.6em; height: 1.6em; }
 .round-btn:active { transform: translateY(0.12em) scale(0.95); }
 .dot { position: absolute; right: -0.1em; top: -0.1em; width: 0.85em; height: 0.85em; border-radius: 50%; background: var(--rose); border: 0.14em solid #fff; display: none; }
-.has-dot .dot { display: block; animation: pulse 1.2s ease-in-out infinite; }
+.has-dot .dot { display: block; animation: pulse 1.2s ease-in-out 3; }
 @keyframes pulse { 50% { transform: scale(1.25); } }
 
 .hud-sub {
@@ -94,7 +94,7 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
   font-size: max(11px, 0.8em); font-weight: 600; white-space: nowrap;
 }
 .chip .ico { width: 1.5em; height: 1.5em; }
-.chip .t { color: var(--ink2); font-variant-numeric: tabular-nums; }
+.chip .t { color: var(--ink2); font-variant-numeric: tabular-nums; display: inline-block; }
 .chip.weather.active { background: linear-gradient(90deg, #fff4c2, #fff8e8); }
 .goal .bar { width: 4.5em; height: 0.55em; border-radius: 999px; background: #f0dcb8; overflow: hidden; }
 .goal .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--rose), #ffa0c0); transition: width .5s var(--out); }
@@ -109,8 +109,9 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .order {
   display: flex; align-items: center; gap: 0.35em; padding: 0.3em 0.55em 0.3em 0.3em; width: 13.5em;
   background: var(--cream); border: 0.16em solid #fff; border-radius: 1.1em; box-shadow: var(--shadow);
-  animation: pop-in .45s var(--spring) backwards; position: relative;
+  position: relative;
 }
+.order.enter { animation: pop-in .45s var(--spring) backwards; }
 .order.special { background: linear-gradient(135deg, #fff3c4, #ffe08a); border-color: #fff6d6; }
 .order .who { width: 2.6em; height: 2.6em; flex: none; border-radius: 50%; background: #e9f6ff; display: grid; place-items: center; overflow: hidden; }
 .order .who svg { width: 2.5em; height: 2.5em; }
@@ -194,10 +195,9 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .plot-tag.poor.lead .num { color: var(--ink2); }
 .plot-tag.afford:not(.lead) { padding: 0.25em; }
 .plot-tag.poor .ico { width: 1.15em; height: 1.15em; }
-.plot-tag.afford { background: linear-gradient(180deg, #7fdc6a, var(--leaf)); color: #fff; box-shadow: 0 0.18em 0 var(--leaf-d); animation: tag-pulse 1.6s ease-in-out infinite; }
+.plot-tag.afford { background: linear-gradient(180deg, #7fdc6a, var(--leaf)); color: #fff; box-shadow: 0 0.18em 0 var(--leaf-d); }
 .plot-tag.afford .num { text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
 .plot-tag.afford .ico:first-child { width: 0.9em; height: 0.9em; color: #fff; margin-left: 0.15em; }
-@keyframes tag-pulse { 50% { scale: 1.08; } }
 .plot-tag:hover { scale: 1.1; }
 .plot-tag.shake { animation: shake .4s; }
 @keyframes shake { 20%, 60% { margin-left: -0.3em; } 40%, 80% { margin-left: 0.3em; } }

@@ -2,7 +2,6 @@
 // coins. Game drives when it appears (Game._goldenTick); this only flies and paints it.
 import { Sprite, SpriteBank, drawSprite, softEllipse } from './paint.js';
 import { SQ, HY } from './view3q.js';
-import { ease } from '../core/math.js';
 
 const TAU = Math.PI * 2;
 const bank = new SpriteBank();
@@ -65,9 +64,9 @@ export class GoldenBee {
     this.draw = (ctx, s, t) => this._draw(ctx, s, t);
     this.sparkT = 0;
   }
-  // fly from one side of the garden to the other along a lazy wave (world units, seconds)
-  start(from, to, dur = 11) {
-    this.on = true; this.t = 0; this.dur = dur; this.from = from; this.to = to; this.caught = 0;
+  // zip in from one side, bumble about over `mid` for most of the flight, zip out the other side (world units, seconds)
+  start(from, to, dur = 11, mid = { x: (from.x + to.x) / 2, z: (from.z + to.z) / 2 }) {
+    this.on = true; this.t = 0; this.dur = dur; this.from = from; this.to = to; this.mid = mid; this.caught = 0;
     this.seed = Math.random() * 10;
     this.face = to.x > from.x ? 1 : -1;
   }
@@ -91,11 +90,12 @@ export class GoldenBee {
   }
   // where the bee is t seconds into its flight (world units)
   at(t) {
-    const k = Math.min(1, t / this.dur), e = ease.inOutQuad(k), f = this.from, to = this.to;
+    const d = 2 * Math.min(1, t / this.dur) - 1, e = Math.abs(d) ** 2.2;   // 0 over the middle of the flight, 1 at its ends
+    const m = this.mid, a = d < 0 ? this.from : this.to;
     return {
-      x: f.x + (to.x - f.x) * e + Math.sin(t * 1.1 + this.seed) * 0.8,
+      x: m.x + (a.x - m.x) * e + Math.sin(t * 1.1 + this.seed) * 0.8,
       y: 1.7 + Math.sin(t * 2.3 + this.seed) * 0.35,
-      z: f.z + (to.z - f.z) * e + Math.sin(t * 0.7 + this.seed * 2) * 1.4,
+      z: m.z + (a.z - m.z) * e + Math.sin(t * 0.7 + this.seed * 2) * 1.1,
     };
   }
   catch() { this.caught = 0.001; this.fx?.sparkles(this.x, this.y, this.z, '#ffd23a', 14, 1.3, 1.1); this.fx?.petals(this.x, this.y, this.z, ['#ffd84d', '#ffe99a', '#f5b416'], 10); }
