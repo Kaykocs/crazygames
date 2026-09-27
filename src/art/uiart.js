@@ -225,6 +225,25 @@ const ICONS = {
     ctx.beginPath(); ctx.arc(0, 0, 0.88, 0, TAU); ctx.fillStyle = '#ffffff'; ctx.fill(); out(ctx, '#4a5570', lw * 1.2);
     ctx.strokeStyle = '#4a5570'; ctx.lineWidth = lw * 1.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -0.55); ctx.moveTo(0, 0); ctx.lineTo(0.38, 0.2); ctx.stroke();
   },
+  sound(ctx, lw) {
+    ctx.beginPath(); ctx.moveTo(-0.85, -0.3); ctx.lineTo(-0.45, -0.3); ctx.lineTo(0.1, -0.78); ctx.lineTo(0.1, 0.78); ctx.lineTo(-0.45, 0.3); ctx.lineTo(-0.85, 0.3); ctx.closePath();
+    ctx.fillStyle = lg(ctx, -0.8, -0.8, 0.2, 0.8, [[0, '#8fd0ff'], [1, '#3a86d0']]); ctx.fill(); out(ctx, '#1f4a7a', lw);
+    ctx.strokeStyle = '#1f4a7a'; ctx.lineWidth = lw * 1.6;
+    for (const r of [0.38, 0.7]) { ctx.beginPath(); ctx.arc(0.1, 0, r, -0.9, 0.9); ctx.stroke(); }
+    shine(ctx, -0.55, -0.12, 0.12, 0.06, 0, 0.6);
+  },
+  music(ctx, lw) {
+    ctx.strokeStyle = '#3a2a5a'; ctx.lineWidth = lw * 1.8;
+    ctx.beginPath(); ctx.moveTo(-0.3, 0.55); ctx.lineTo(-0.3, -0.6); ctx.lineTo(0.62, -0.82); ctx.lineTo(0.62, 0.35); ctx.stroke();
+    ctx.lineWidth = lw * 3.2; ctx.beginPath(); ctx.moveTo(-0.3, -0.58); ctx.lineTo(0.62, -0.8); ctx.stroke();
+    for (const [x, y, c] of [[-0.52, 0.6, '#ff6f9c'], [0.4, 0.4, '#8f6bff']]) { ctx.beginPath(); ctx.ellipse(x, y, 0.26, 0.2, -0.4, 0, TAU); ctx.fillStyle = c; ctx.fill(); out(ctx, '#3a2a5a', lw); shine(ctx, x - 0.08, y - 0.07, 0.07, 0.04, -0.4, 0.7); }
+  },
+  info(ctx, lw) {
+    ctx.beginPath(); ctx.arc(0, 0, 0.88, 0, TAU); ctx.fillStyle = rg(ctx, 0, 0, 0.9, [[0, '#a8e0ff'], [1, '#3a9be0']]); ctx.fill(); out(ctx, '#1f4a7a', lw);
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, -0.42, 0.13, 0, TAU); ctx.fill();
+    ctx.beginPath(); roundRect(ctx, -0.12, -0.18, 0.24, 0.72, 0.1); ctx.fill();
+    shine(ctx, -0.4, -0.45, 0.16, 0.08, -0.6, 0.5);
+  },
   // upgrades
   up_bees(ctx, lw) {
     ctx.save(); ctx.translate(-0.1, 0.15); ctx.scale(0.72, 0.72);

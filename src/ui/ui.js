@@ -139,6 +139,8 @@ export class UI {
     const goal = g.nextGoal();
     if (goal) {
       const txt = `${goal.text} (${fmt(Math.min(goal.value, goal.goal))}/${fmt(goal.goal)})`;
+      const ic = GOAL_ICON[goal.stat] || 'target';
+      if (this._goalIco !== ic) { this._goalIco = ic; this.goalChip.querySelector('.ico')?.remove(); this.goalChip.insertAdjacentHTML('afterbegin', icon(ic)); }
       const tEl = this.goalChip.querySelector('.txt');
       if (tEl.textContent !== txt) tEl.textContent = txt;
       this.goalChip.querySelector('.bar i').style.width = `${Math.round(goal.k * 100)}%`;
@@ -619,7 +621,7 @@ export class UI {
         list.sort((x, y) => (x.done - y.done) || (y.v / y.a.goal - x.v / x.a.goal));
         for (const { a, v, done } of list) {
           rows.appendChild(el('div', 'row' + (done ? ' done' : ''),
-            `<div class="art">${icon(done ? 'trophy' : 'target', 30)}</div><div class="info"><b>${a.name}</b><small>${a.text}</small>
+            `<div class="art">${icon(done ? 'trophy' : GOAL_ICON[a.stat] || 'target', 30)}</div><div class="info"><b>${a.name}</b><small>${a.text}</small>
              ${done ? '' : `<div class="prog"><i style="width:${Math.min(100, (v / a.goal) * 100)}%"></i></div>`}</div>
              <div style="font-weight:700;font-size:.85em;display:flex;align-items:center;gap:.2em;white-space:nowrap">${done ? icon('check', 20) : `${icon('coin', 18)}${fmt(a.reward)}`}</div>`));
         }
@@ -723,6 +725,9 @@ export class UI {
     else { this.tutBubble.style.bottom = `${window.innerHeight - b.top + 12}px`; this.tutBubble.style.top = ''; }
   }
 }
+
+// one picture per kind of goal
+const GOAL_ICON = { discoveries: 'book', harvests: 'basket', seeds: 'seed', orders: 'gift', plots: 'shovel', level: 'star', mutations: 'rainbow', decor: 'up_market' };
 
 function keyOf(g) { return `${g.c1}.${g.c2}.${g.shape}.${g.pattern}`; }
 

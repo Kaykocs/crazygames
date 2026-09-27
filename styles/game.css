@@ -491,3 +491,11 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .tut-bubble { padding-left: 3.7em; }
 .tut-bubble .queen { left: -0.8em; width: 3.5em; height: 3.5em; filter: drop-shadow(0 0.15em 0.2em rgba(0, 0, 0, 0.35)); }
 .tut-bubble .queen img, .tut-bubble .queen svg { width: 100%; height: 100%; }
+
+/* loading screen logo matches the store covers */
+#loading { background: radial-gradient(ellipse at 50% 38%, #fffbe8 0%, #ffe6a0 40%, #ffc466 75%, #f5a24a 100%); }
+#loading .logo { color: transparent; background: linear-gradient(180deg, #fff6b8 0%, #ffd23f 48%, #ff9f1c 100%); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; -webkit-text-stroke: 0.1em #5a3010; paint-order: stroke fill; text-shadow: none;
+  filter: drop-shadow(0 0.06em 0 #5a3010) drop-shadow(0 0.12em 0.14em rgba(60, 30, 10, 0.35)); transform: rotate(-2deg); }
+#loading .logo small { -webkit-text-fill-color: #7a4a24; -webkit-text-stroke: 0; color: #7a4a24; filter: none; font-family: 'Fredoka', sans-serif; font-weight: 700; letter-spacing: 0.04em; }
+#loading .bar { border: 0.14em solid #5a3010; background: rgba(255, 250, 235, 0.7); box-shadow: 0 0.14em 0 #5a3010; }

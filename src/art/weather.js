@@ -157,5 +157,27 @@ export class Weather {
       this.vig = { c, w: W, h: H };
     }
     ctx.drawImage(this.vig.c, 0, 0, W, H);
+    // a whisper of paper grain so the flat colours read as an illustration, not a screen
+    if (this.q.glow !== false) {
+      if (!this.grain) {
+        const c = document.createElement('canvas');
+        c.width = c.height = 160;
+        const g = c.getContext('2d'), img = g.createImageData(160, 160);
+        let seed = 7;
+        for (let i = 0; i < img.data.length; i += 4) {
+          seed = (seed * 16807) % 2147483647;
+          const v = 128 + ((seed / 2147483647) - 0.5) * 120;
+          img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255;
+        }
+        g.putImageData(img, 0, 0);
+        this.grain = ctx.createPattern(c, 'repeat');
+      }
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = this.grain;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
   }
 }

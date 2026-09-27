@@ -479,6 +479,7 @@ class Game {
         return;
       }
       if (Math.hypot(p.x - down.x, p.y - down.y) > 6) down.moved = true;
+      if (down.mode === 'buy' && down.moved) down.mode = 'pan';
       if (down.mode === 'pan') {
         if (down.moved) { view.panBy(p.x - down.lx, p.y - down.ly); cv.style.cursor = 'grabbing'; }
         down.lx = p.x; down.ly = p.y;
@@ -488,6 +489,10 @@ class Game {
       if (down.mode && down.mode !== 'pinch') this._swipeAt(p.x, p.y, down);
     });
     const end = (e) => {
+      if (e.type === 'pointerup' && down && down.mode === 'buy' && !down.moved && pts.size === 1) {
+        const p = pos(e), i = view.pickPlot(p.x, p.y);
+        if (i === down.buy) this._buyPlot(i, ui.plotTags.get(i));
+      }
       pts.delete(e.pointerId);
       if (pts.size < 2) pinch = null;
       if (pts.size === 0) { down = null; if (cv.style.cursor === 'grabbing') cv.style.cursor = 'grab'; }
@@ -518,7 +523,8 @@ class Game {
     if (i < 0) return false;
     const plot = g.plots[i], pl = plot.plant;
     const tut = g.s.tutorial < 99 ? TUT[g.s.tutorial]?.key : null;
-    if (!plot.owned) { if (g.canBuyPlot(i) && g.s.tutorial >= 99) { this._buyPlot(i, ui.plotTags.get(i)); return true; } return false; }
+    // plots are bought on a clean tap (released without dragging), so looking around never spends coins
+    if (!plot.owned) { if (g.canBuyPlot(i) && g.s.tutorial >= 99) { down.mode = 'buy'; down.buy = i; return true; } return false; }
     if (ui.tool === 'water') {
       if (pl && pl.stage === 'grow') { if (!g.water(i)) { audio.play('invalid'); ui.toast('The watering can is empty — it refills by itself', 'warn'); } }
       else audio.play('invalid');

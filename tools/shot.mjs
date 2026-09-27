@@ -85,6 +85,24 @@ for (const name of only) {
       await page.screenshot({ animations: 'disabled', path: `shots/${name}-beauty-${w}.png` });
     }
   }
+  if (args.panels) {
+    // every menu / card once, on a mid-game save
+    await page.evaluate(() => { const G = __game; G.debug.skipTutorial(); G.debug.coins(250000); G.debug.level(12); G.ui.cards.length = 0; document.querySelectorAll('.card-pop .btn').forEach((b) => b.click()); });
+    await page.waitForTimeout(700);
+    await page.evaluate(() => document.querySelectorAll('.card-pop .btn').forEach((b) => b.click()));
+    await page.waitForTimeout(700);
+    const snap = async (tag) => { await page.waitForTimeout(700); await page.screenshot({ animations: 'disabled', path: `shots/${name}-p-${tag}.png` }); };
+    for (const [tag, fn] of [
+      ['upgrades', () => __game.ui.openShop('upgrades')], ['decor', () => __game.ui.openShop('decor')],
+      ['goals', () => __game.ui.openBook('goals')], ['settings', () => __game.ui.openSettings()],
+    ]) { await page.evaluate(fn); await snap(tag); await page.evaluate(() => __game.ui.closePanel(true)); await page.waitForTimeout(300); }
+    await page.evaluate(() => { const g = __game.garden; g.addXp(Math.max(1, (typeof g.s.xp === 'number' ? 0 : 0) + 400000)); });
+    await snap('levelup');
+    await page.evaluate(() => { document.querySelectorAll('.card-pop .btn').forEach((b) => b.click()); __game.ui.cards.length = 0; });
+    await page.waitForTimeout(600);
+    await page.evaluate(() => { const g = __game.garden; g.s.daily.last = ''; g.claimDaily('2099-1-1', '2098-12-31'); });
+    await snap('daily');
+  }
   if (args.play) {
     // play the tutorial through real input
     const g = () => page.evaluate(() => ({ step: __game.garden.s.tutorial, pouch: __game.garden.s.pouch.length, seeds: __game.garden.s.seeds.length }));
@@ -175,6 +193,17 @@ for (const name of only) {
       await page.screenshot({ animations: 'disabled', path: `shots/${name}-6-pan.png` });
       const cam = await page.evaluate(() => ({ user: __game.view.user, cam: __game.stage.cam }));
       console.log(`[${name}] after pan/zoom`, JSON.stringify(cam));
+      // a drag that starts on a buyable plot pans; a clean click buys it
+      await page.evaluate(() => { __game.view.user.x = 0; __game.view.user.y = 0; __game.view.user.zoom = 1; __game.view._applyCam(true); __game.debug.coins(1e6); __game.debug.sim(0.3); });
+      const plot = await page.evaluate(() => { const g = __game.garden; const i = g.plots.findIndex((p, k) => !p.owned && g.canBuyPlot(k)); const w = g.pos[i]; const pt = __game.view.project(w.x - 0.45, 0.1, w.z + 0.25); return { i, x: pt.x, y: pt.y }; });
+      const owned = () => page.evaluate((i) => __game.garden.plots[i].owned, plot.i);
+      await page.mouse.move(plot.x, plot.y); await page.mouse.down(); await page.mouse.move(plot.x + 80, plot.y + 10, { steps: 5 }); await page.mouse.up();
+      const afterDrag = await owned();
+      await page.evaluate(() => { __game.view.user.x = 0; __game.view.user.y = 0; __game.view._applyCam(true); __game.debug.sim(0.2); });
+      await page.mouse.click(plot.x, plot.y);
+      const afterClick = await owned();
+      console.log(`[${name}] buy by tap: drag=${afterDrag} click=${afterClick}`);
+      if (afterDrag || !afterClick) { errors++; console.log(`[${name}] plot tap-to-buy check failed`); }
       // buying a decoration closes the shop and shows it off
       await page.evaluate(() => { __game.debug.coins(5000); __game.ui.openShop(); __game.garden.buyDecor('birdbath'); });
       await page.evaluate(() => __game.debug.sim(1.2));
