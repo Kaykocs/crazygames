@@ -376,7 +376,7 @@ export class UI {
     if (!html) { this.hoverEl.style.display = 'none'; return; }
     if (this._hoverHtml !== html) { this._hoverHtml = html; this.hoverEl.innerHTML = html; }
     this.hoverEl.style.display = '';
-    this.hoverEl.style.left = `${x}px`; this.hoverEl.style.top = `${y}px`;
+    this.hoverEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, calc(-100% - 22px))`;
   }
 
   floatText(x, y, text, cls = '') {

@@ -187,7 +187,7 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .plot-tag:hover { scale: 1.1; }
 .plot-tag.shake { animation: shake .4s; }
 @keyframes shake { 20%, 60% { margin-left: -0.3em; } 40%, 80% { margin-left: 0.3em; } }
-.hover-tip { position: absolute; transform: translate(-50%, calc(-100% - 22px)); display: flex; align-items: center; gap: 0.35em; padding: 0.3em 0.7em 0.3em 0.45em; border-radius: 0.8em;
+.hover-tip { position: absolute; left: 0; top: 0; will-change: transform; transform: translate(-50%, calc(-100% - 22px)); display: flex; align-items: center; gap: 0.35em; padding: 0.3em 0.7em 0.3em 0.45em; border-radius: 0.8em;
   background: rgba(74, 46, 30, 0.92); color: #fff; font-size: max(11px, 0.78em); font-weight: 600; white-space: nowrap; pointer-events: none; box-shadow: 0 0.3em 0.8em rgba(0, 0, 0, 0.25); }
 .hover-tip svg, .hover-tip img { width: 1.5em; height: 1.5em; }
 .float-txt { position: absolute; transform: translate(-50%, -50%); font-family: 'Lilita One', sans-serif; font-size: 1.15em; color: #fff; white-space: nowrap;
@@ -204,6 +204,9 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
   font-weight: 600; font-size: max(11px, 0.85em); box-shadow: 0 0.3em 0.8em rgba(0, 0, 0, 0.25); animation: toast-in .4s var(--spring), toast-out .4s ease-in forwards; animation-delay: 0s, var(--life, 2.4s); white-space: nowrap;
 }
 .toast .ico, .toast svg, .toast img { width: 1.6em; height: 1.6em; }
+/* text and bold words flow inline (a flex row would put gaps around every <b>) */
+.toast { display: block; text-align: center; line-height: 1.6em; }
+.toast .ico, .toast svg, .toast img { display: inline-block; vertical-align: middle; margin: -0.2em 0.3em -0.1em 0; }
 .toast.good { background: linear-gradient(90deg, #3c9a3f, #5cc15a); }
 .toast.warn { background: linear-gradient(90deg, #c9406a, #ff6f9c); }
 .toast.gold { background: linear-gradient(90deg, #d8840f, #ffb52e); }

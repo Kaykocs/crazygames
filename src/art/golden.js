@@ -83,16 +83,22 @@ export class GoldenBee {
       if (this.caught > 0.7) this.on = false;
       return;
     }
-    const k = Math.min(1, this.t / this.dur), e = ease.inOutQuad(k);
-    const f = this.from, to = this.to;
-    this.x = f.x + (to.x - f.x) * e + Math.sin(this.t * 1.1 + this.seed) * 0.8;
-    this.z = f.z + (to.z - f.z) * e + Math.sin(this.t * 0.7 + this.seed * 2) * 1.4;
-    this.y = 1.7 + Math.sin(this.t * 2.3 + this.seed) * 0.35;
+    const p = this.at(this.t);
+    this.x = p.x; this.y = p.y; this.z = p.z;
     this.sortY = this.z * SQ + 0.5;
     this.sparkT += dt;
     if (this.sparkT > 0.09) { this.sparkT = 0; this.fx?.sparkles(this.x - this.face * 0.3, this.y, this.z, '#ffe27a', 1, 0.2, 0.8); }
   }
-  catch() { this.caught = 0.001; this.fx?.sparkles(this.x, this.y, this.z, '#ffe27a', 30, 0.9, 1.5); }
+  // where the bee is t seconds into its flight (world units)
+  at(t) {
+    const k = Math.min(1, t / this.dur), e = ease.inOutQuad(k), f = this.from, to = this.to;
+    return {
+      x: f.x + (to.x - f.x) * e + Math.sin(t * 1.1 + this.seed) * 0.8,
+      y: 1.7 + Math.sin(t * 2.3 + this.seed) * 0.35,
+      z: f.z + (to.z - f.z) * e + Math.sin(t * 0.7 + this.seed * 2) * 1.4,
+    };
+  }
+  catch() { this.caught = 0.001; this.fx?.sparkles(this.x, this.y, this.z, '#ffd23a', 14, 1.3, 1.1); this.fx?.petals(this.x, this.y, this.z, ['#ffd84d', '#ffe99a', '#f5b416'], 10); }
   collect(list) { if (this.on) list.push(this); }
   screen(s) { return s.project(this.x, this.y, this.z); }
   _draw(ctx, s, time) {

@@ -153,7 +153,7 @@ const STAGE = (o) => {
     if (i === undefined || !g.plots[i].owned) continue;
     const genes = { c1, c2: pattern ? (c1 === 3 ? 7 : 3) : 3, shape, pattern, mut };
     const dur = g.plantDuration(genes);
-    g.plots[i].plant = { g: genes, stage: o.growing?.includes(key(q, r)) ? 'grow' : 'bloom', t: o.growing?.includes(key(q, r)) ? dur * 0.4 : dur, dur, bloomT: 0, pollenT: 99, harvests: 0 };
+    g.plots[i].plant = { g: genes, stage: o.growing?.includes(key(q, r)) ? 'grow' : 'bloom', t: o.growing?.includes(key(q, r)) ? dur * 0.4 : dur, dur, bloomT: 0, pollenT: o.rest ?? 99, harvests: 0, taps: 0 };
     sp[c1 * 8 + shape] = sp[c1 * 8 + shape] || { t: 1, n: 1 };
     const pv = V.pv[i];
     pv.g = genes; pv.stem = 0.64 * (mut === 5 ? 1.15 : 1); pv.head = mut === 5 ? 1.4 : 1; pv.open = 1; pv.pop = 0; pv.harvestT = 0;
@@ -177,7 +177,8 @@ const STAGE = (o) => {
   V.frame(true);
   V.user.x = o.camX ?? 0; V.user.y = o.camY ?? 0; V.user.zoom = o.zoom ?? 1; V.user.idle = 0;
   V._applyCam(true);
-  G.stage.groundDirty = true;
+  V.drag = null; V.zips = []; V.golden.stop(); G.goldenT = 9999; G.hint = null; G.ui.tutFrame(null);
+  g.combo = 0; g.comboT = -99;
   window.__lockCam = !!o.lockCam;
   return true;
 };
@@ -311,48 +312,29 @@ const DECOR = ['birdbath', 'bench', 'arch', 'lanterns', 'fountain'];
 const BASE = { flowers: FLOWERS, decor: DECOR, radius: 2, lockCam: true, pouch: [[1, 1, 4], [2, 0, 2], [6, 3, 1]], coins: 12480 };
 
 const SHOTS = {
-  // 1. hook: sweep a row of blooms — petals, coins and numbers everywhere
-  async harvest(rec, fmt) {
-    await rec.page.evaluate(STAGE, { ...BASE, zoom: fmt.touch ? 1.05 : 1.12, camY: fmt.touch ? 0.1 : 0.15, beeRest: 0.2 });
-    await rec.warm(45);
-    const row = fmt.touch ? [[-2, 1], [-1, 1], [0, 1], [1, 0], [2, -1]] : [[-2, 1], [-1, 0], [0, 0], [1, -1], [2, -1]];
-    const pts = [];
-    for (const [q, r] of row) pts.push(await rec.head(q, r, -0.05));
-    rec.x = pts[0].x + (fmt.touch ? 0 : 260); rec.y = pts[0].y + (fmt.touch ? 0 : 150);
-    await rec.hold(0.25);
-    await rec.drag(pts, { pps: fmt.touch ? 430 : 700 });
-    await rec.moveTo(pts[4].x + 60, pts[4].y + 90, { speed: 0.8 });
-    await rec.hold(1.0);
-  },
-  // 2. a bee visits two neighbours and leaves a glowing hybrid seed — tap it
-  async bees(rec, fmt) {
-    await rec.page.evaluate(STAGE, { ...BASE, zoom: fmt.touch ? 1.55 : 1.7, beeRest: 99 });
-    // frame the pair (red blossom at -1,1 and blue blossom at 0,1) and send one bee in
+  // 1. hook: carry pollen from one bloom onto another — a pollen trail, and a glowing hybrid seed pops out
+  async cross(rec, fmt) {
+    await rec.page.evaluate(STAGE, { ...BASE, zoom: fmt.touch ? 1.5 : 1.6, beeRest: 99, rest: 0 });
     await rec.page.evaluate((touch) => {
-      const G = __game, g = G.garden, V = G.view, A = g.byKey.get('-1,1'), B = g.byKey.get('0,1');
+      const G = __game, g = G.garden, V = G.view, A = g.byKey.get('-1,1'), B = g.byKey.get('1,0');
       const mx = (g.pos[A].x + g.pos[B].x) / 2, mz = (g.pos[A].z + g.pos[B].z) / 2;
-      V.user.x = mx - V.base.x; V.user.y = mz * 0.72 - 0.35 - V.base.y + (touch ? 0.2 : 0); V._applyCam(true);
+      V.user.x = mx - V.base.x; V.user.y = mz * 0.72 - 0.45 - V.base.y + (touch ? 0.25 : 0); V._applyCam(true);
       g.forceChild = { c1: 6, c2: 3, shape: 3, pattern: 0, mut: 0 };
-      const b = g.bees[0];
-      b.state = 'atA'; b.a = A; b.b = B; b.t = 0.1; b.dur = 0.9; b.chain = 5;
-      const v = G.view.bees.views[0];
-      if (v) { const p = g.pos[A]; v.x = p.x - 0.8; v.z = p.z - 0.4; v.y = 1.4; }
+      delete g.s.book[6 * 8 + 3];
     }, fmt.touch);
-    await rec.warm(4);
-    const tap = fmt.touch ? { x: fmt.viewport.width * 0.7, y: fmt.viewport.height * 0.62 } : { x: fmt.viewport.width * 0.74, y: fmt.viewport.height * 0.7 };
-    rec.x = tap.x; rec.y = tap.y;
-    // wait for the seed bubble, idling like a player watching
-    for (let i = 0; i < 150; i++) {
-      await rec.frame();
-      const has = await rec.page.evaluate(() => [...__game.view.orbs.values()].some((o) => o.k > 0.95));
-      if (has) break;
-    }
-    await rec.hold(0.3);
-    const orb = await rec.page.evaluate(() => { const o = [...__game.view.orbs.values()][0]; return o ? __game.view.orbScreen(o.id) : null; });
-    if (orb) await rec.click(orb.x, orb.y, { after: 12 });
-    await rec.hold(0.35);
+    await rec.warm(30);
+    const a = await rec.head(-1, 1, -0.02), b = await rec.head(1, 0, -0.02);
+    rec.x = a.x + (fmt.touch ? 0 : 170); rec.y = a.y + 150;
+    await rec.hold(0.2);
+    const mid = { x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - 60 };
+    await rec.drag([a, { x: a.x + (mid.x - a.x) * 0.5, y: (a.y + mid.y) / 2 }, mid, b], { pps: fmt.touch ? 330 : 420 });
+    await rec.moveTo(b.x + 70, b.y + 110, { speed: 0.9 });
+    await rec.hold(0.55);
+    const orb = await rec.page.evaluate(() => { const o = [...__game.view.orbs.values()].find((x) => !x.leaving); return o ? __game.view.orbScreen(o.id) : null; });
+    if (orb) await rec.click(orb.x, orb.y, { after: 14 });
+    await rec.hold(0.2);
   },
-  // 3. plant the mystery seed: it grows, pops open — a brand new species!
+  // 2. drag the mystery seed onto the soil, tap-tap-tap: it shoots up and opens — a brand new species!
   async discover(rec, fmt) {
     await rec.page.evaluate(STAGE, { ...BASE, zoom: fmt.touch ? 1.45 : 1.55, beeRest: 99, flowers: FLOWERS.filter(([q, r]) => !(q === 0 && r === 0)), pouch: [[6, 3, 1], [1, 1, 4], [2, 0, 2]] });
     await rec.page.evaluate((touch) => {
@@ -365,21 +347,59 @@ const SHOTS = {
     await rec.warm(8);
     const chip = await rec.el('.pouch-list .seedchip', 0);
     const soil = await rec.soil(0, 0);
-    rec.x = soil.x + (fmt.touch ? 0 : 120); rec.y = soil.y + 40;
-    await rec.hold(0.15);
-    await rec.click(chip.x, chip.y, { after: 4 });
-    await rec.click(soil.x + 4, soil.y - 6, { after: 2 });
-    // time-lapse growth
-    await rec.page.evaluate(() => { __game.garden.tutorialSpeed = 30; });
-    await rec.moveTo(soil.x + (fmt.touch ? 0 : 150), soil.y + 70, { speed: 0.7 });
-    for (let i = 0; i < 90; i++) {
+    rec.x = chip.x + (fmt.touch ? 0 : 140); rec.y = chip.y - 60;
+    await rec.hold(0.1);
+    await rec.drag([chip, { x: chip.x + (soil.x - chip.x) * 0.3, y: chip.y - 90 }, { x: soil.x, y: soil.y - 4 }], { pps: fmt.touch ? 420 : 560 });
+    // a quick grow: short enough that eight quick taps and the natural growth open it
+    await rec.page.evaluate(() => { const G = __game, g = G.garden, pl = g.plots[g.byKey.get('0,0')].plant; if (pl) { pl.dur = 2.6; pl.t = 0.2; } });
+    const sprout = await rec.page.evaluate(() => { const G = __game, w = G.garden.pos[G.garden.byKey.get('0,0')]; return G.view.project(w.x, 0.55, w.z); });
+    await rec.moveTo(sprout.x, sprout.y, { speed: 1.2 });
+    for (let k = 0; k < 9; k++) {
+      if (await rec.page.evaluate(() => !!document.querySelector('.card-pop:not(.leaving)'))) break;
+      await rec.press(); await rec.frame(); await rec.frame(); await rec.release(); await rec.frame(); await rec.frame();
+      rec.x += (rec.R() - 0.5) * 6; rec.y += (rec.R() - 0.5) * 5;
+    }
+    for (let i = 0; i < 60; i++) {
       await rec.frame();
       if (await rec.page.evaluate(() => !!document.querySelector('.card-pop:not(.leaving)'))) break;
     }
-    await rec.page.evaluate(() => { __game.garden.tutorialSpeed = 1; });
-    await rec.hold(1.25);
+    await rec.moveTo(sprout.x + (fmt.touch ? 0 : 160), sprout.y + 120, { speed: 0.6 });
+    await rec.hold(1.1);
   },
-  // 4. starry night: fireflies, lanterns and moonlit flowers that glow
+  // 3. harvest as fast as you can: combo ×2 ×3 ×4 … coins everywhere
+  async combo(rec, fmt) {
+    await rec.page.evaluate(STAGE, { ...BASE, zoom: fmt.touch ? 1.1 : 1.15, camY: fmt.touch ? 0.1 : 0.12, beeRest: 99 });
+    await rec.warm(30);
+    const row = fmt.touch ? [[-2, 1], [-1, 1], [0, 1], [1, 0], [2, -1], [2, 0]] : [[-2, 1], [-1, 0], [0, 0], [1, -1], [2, -1], [2, 0]];
+    const pts = [];
+    for (const [q, r] of row) pts.push(await rec.head(q, r, -0.05));
+    rec.x = pts[0].x + (fmt.touch ? 0 : 200); rec.y = pts[0].y + 140;
+    await rec.hold(0.15);
+    for (const p of pts) await rec.click(p.x, p.y, { speed: 2.4, after: 1 });
+    await rec.moveTo(pts[pts.length - 1].x + 60, pts[pts.length - 1].y + 100, { speed: 0.8 });
+    await rec.hold(0.7);
+  },
+  // 4. a golden bee drifts by — catch it!
+  async golden(rec, fmt) {
+    await rec.page.evaluate(STAGE, { ...BASE, zoom: fmt.touch ? 1.2 : 1.3, beeRest: 1 });
+    await rec.page.evaluate(() => {
+      const G = __game, st = G.stage, cx = st.cam.x, cz = st.cam.y / 0.72, span = st.vw / st.cam.ppu / 2 + 0.8;
+      G.view.golden.start({ x: cx + span, z: cz - 0.8 }, { x: cx - span, z: cz + 0.6 }, 7);
+      G.view.golden.seed = 1.3;
+    });
+    await rec.warm(2);
+    rec.x = fmt.viewport.width * 0.3; rec.y = fmt.viewport.height * 0.78;
+    // watch it come in, then go for it
+    for (let i = 0; i < 26; i++) await rec.frame();
+    const gpos = async (lead) => rec.page.evaluate((lead) => { const gb = __game.view.golden, w = gb.at(gb.t + lead); return __game.view.project(w.x, w.y, w.z); }, lead);
+    const aim = await gpos(0.45);
+    await rec.moveTo(aim.x, aim.y, { speed: 1.25, settle: false });
+    const now = await gpos(0);
+    rec.x = now.x; rec.y = now.y;
+    await rec.press(); await rec.frame(); await rec.frame(); await rec.release();
+    await rec.hold(1.1);
+  },
+  // 5. starry night: fireflies, lanterns and moonlit flowers that glow
   async night(rec, fmt) {
     const fl = FLOWERS.map((f) => ([[0, 1], [-1, 0], [1, -1], [2, 0], [-2, 2], [0, -2]].some(([q, r]) => q === f[0] && r === f[1]) ? [f[0], f[1], f[2], f[3], f[4] || 0, 2] : f));
     await rec.page.evaluate(STAGE, { ...BASE, flowers: fl, weather: 'night', zoom: fmt.touch ? 1.1 : 1.18, camY: -0.25, beeRest: 0.5 });
@@ -387,16 +407,15 @@ const SHOTS = {
     const a = await rec.head(0, 1, -0.05), b = await rec.head(-1, 0, -0.05);
     rec.x = a.x + (fmt.touch ? 0 : 200); rec.y = a.y + 120;
     await rec.hold(0.3);
-    await rec.click(a.x, a.y, { after: 8 });
+    await rec.click(a.x, a.y, { after: 5 });
     await rec.click(b.x, b.y, { after: 10 });
-    await rec.hold(0.7);
+    await rec.hold(0.5);
   },
-  // 5. grow the garden: buy a new plot, then sow a row of seeds with one swipe
+  // 6. grow the garden: buy a new plot, then sow seeds straight from the pouch
   async expand(rec, fmt) {
     const fl = FLOWERS.filter(([q, r]) => !([[2, 0], [1, 1]].some(([a, b]) => a === q && b === r)));
     await rec.page.evaluate(STAGE, { ...BASE, flowers: fl, coins: 21350, zoom: fmt.touch ? 1.0 : 1.08, camX: fmt.touch ? 0.6 : 0.9, beeRest: 1 });
     await rec.warm(20);
-    // the new plot sits right next to the two empty beds
     const tag = await rec.page.evaluate(() => {
       const G = __game, g = G.garden, i = g.byKey.get('3,-1');
       const t = G.ui.plotTags.get(i);
@@ -405,17 +424,17 @@ const SHOTS = {
     });
     const start = await rec.soil(2, 0);
     rec.x = start.x - 120; rec.y = start.y + 150;
-    await rec.hold(0.15);
-    if (tag) await rec.click(tag.x, tag.y, { after: 20 });
-    else { const s = await rec.soil(3, -1); await rec.click(s.x, s.y, { after: 20 }); }
+    await rec.hold(0.1);
+    if (tag) await rec.click(tag.x, tag.y, { after: 16 });
+    else { const s = await rec.soil(3, -1); await rec.click(s.x, s.y, { after: 16 }); }
     const chip = await rec.el('.pouch-list .seedchip', 0);
     await rec.click(chip.x, chip.y, { after: 3 });
     const pts = [await rec.soil(3, -1), await rec.soil(2, 0), await rec.soil(1, 1)];
     await rec.drag(pts.map((p) => ({ x: p.x, y: p.y - 4 })), { pps: fmt.touch ? 300 : 430 });
     await rec.moveTo(pts[2].x - 80, pts[2].y + 90, { speed: 0.8 });
-    await rec.hold(0.55);
+    await rec.hold(0.4);
   },
-  // 6. decorate: buy the windmill and watch it pop into the garden
+  // 7. decorate: buy the windmill and watch it pop into the garden
   async decorate(rec, fmt) {
     await rec.page.evaluate(STAGE, { ...BASE, coins: 84210, zoom: 1, beeRest: 0.5 });
     await rec.warm(20);
@@ -429,23 +448,23 @@ const SHOTS = {
     await rec.click(buy.x, buy.y, { after: 2 });
     await rec.page.evaluate(() => { window.__lockCam = false; });
     await rec.moveTo(fmt.viewport.width * (fmt.touch ? 0.5 : 0.72), fmt.viewport.height * 0.8, { speed: 0.6 });
-    await rec.hold(1.35);
+    await rec.hold(1.2);
   },
-  // 7. finale: the whole garden under a rainbow
+  // 8. finale: the whole garden under a rainbow
   async finale(rec, fmt) {
     await rec.page.evaluate(STAGE, { ...BASE, decor: [...DECOR, 'windmill', 'gazebo', 'statue'], weather: 'rainbow', zoom: fmt.touch ? 0.95 : 0.98, beeRest: 0.3 });
     await rec.warm(60);
     rec.x = fmt.viewport.width * 1.1; rec.y = fmt.viewport.height * 1.1;
     rec.vis = 0;
     // a slow push-in, the camera easing like a hand on the mouse wheel
-    const n = Math.round(2.2 * FPS);
+    const n = Math.round(2.0 * FPS);
     for (let i = 0; i < n; i++) {
       await rec.page.evaluate((k) => { const V = __game.view; V.user.zoom = 0.98 + 0.08 * k; V.user.idle = 0; V._applyCam(true); }, minJerk(i / n));
       await rec.frame();
     }
   },
 };
-const ORDER = ['harvest', 'bees', 'discover', 'night', 'expand', 'decorate', 'finale'];
+const ORDER = args.shots ? String(args.shots).split(',') : ['cross', 'discover', 'combo', 'golden', 'night', 'expand', 'decorate', 'finale'];
 
 // ------------------------------------------------------------------------------------------ main
 mkdirSync('video/clips', { recursive: true });

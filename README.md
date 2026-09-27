@@ -1,9 +1,10 @@
 # Buzz & Bloom
 
-A cozy, hand-illustrated 2D garden game for **CrazyGames**. Plant flowers in wooden hex planters, let your bees
-cross-pollinate neighbouring blooms into brand-new hybrids, discover all 128 species for the Flower Book, fill
-cute visitors' orders, and decorate your garden. There's no fail state and nothing punishes you, and the garden
-keeps growing while you're away.
+A cozy, hand-illustrated 2D garden game for **CrazyGames**. Plant flowers in wooden hex planters, carry pollen
+from bloom to bloom to breed brand-new hybrids (your bees cross neighbours too), tap sprouts to make them grow,
+harvest quickly for combos, discover all 128 species for the Flower Book, fill cute visitors' orders, catch the
+odd golden bee and decorate your garden. There's no fail state and nothing punishes you, and the garden keeps
+growing while you're away.
 
 ![Landscape cover](covers/cover-landscape-1920x1080.png)
 
@@ -17,11 +18,19 @@ npm run dev          # http://localhost:8080  (esbuild dev server, rebundles on 
 Useful URL parameters: `?reset` wipes the save, `?quality=low|medium|high` pins a quality tier, `?debug`
 exposes `window.__game.debug` (coins, levels, weather, freeze/step/sim) in production builds.
 
-Controls: tap or click a seed in the pouch, then tap soil to plant (drag across beds to plant several). Tap or
-swipe over blooms to harvest, tap the glowing bubbles to collect the seeds your bees make. The watering can
-speeds up a growing plant, and the trowel digs a plant up. Drag the lawn to look around, and pinch or use the
-mouse wheel to zoom; the view drifts back to the garden after a few seconds. Keyboard: `1-9` pick seeds, `W`
-water, `D` dig, `S` shop, `B` book, `Esc` closes panels.
+Controls (touch or mouse):
+
+- **Plant**: drag a seed from the pouch onto soil, or tap the seed and then the soil (drag across beds to plant several).
+- **Grow**: tap a growing plant; each tap speeds it up (a ring shows its progress). Swipe across plants to boost them all.
+- **Cross**: drag from one bloom onto another. A pollen trail follows your finger and a hybrid seed pops out; both
+  blooms rest for a few seconds. Bees also cross neighbouring blooms on their own.
+- **Harvest**: tap a bloom. Quick taps in a row make a combo (up to ×2 coins).
+- **Collect**: tap the seed bubbles (they fly into the pouch by themselves after a moment).
+- **Look around**: drag the lawn; pinch or mouse wheel to zoom. The view drifts back to the garden after a few seconds.
+- Keyboard: `1-9` pick seeds, `W` watering can, `D` shovel, `S` shop, `B` book, `Esc` closes panels.
+
+New players get a spotlight tutorial (one action at a time, with a pointing hand), then a chain of starter quests.
+Tapping the quest chip shows where to do the current quest.
 
 ## Build for CrazyGames
 
@@ -36,7 +45,7 @@ is painted procedurally with Canvas 2D at runtime, and all sound and music is sy
 ## Tests & tools
 
 ```bash
-npm test             # headless play-through of the tutorial on desktop + phone (fails on any console error)
+npm test             # headless play-through: follows the tutorial's hand with real taps/drags, then the first quest (fails on any console error)
 npm run shots        # beauty screenshots of a mature garden in every weather → shots/
 node tools/shot.mjs --dist --only=desktop,phone,landscape,small --play   # same checks against dist/
 node tools/covers.mjs                # store covers → covers/ (1920x1080, 800x1200, 800x800)

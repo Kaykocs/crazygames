@@ -13,12 +13,23 @@ you're away.
   gameplay (80 %+). Offline growth, a collection book and orders are the strongest hooks for all three.
 
 ## Core loop (first 60 seconds)
-1. Land directly in the garden (no title screen). A hand hint says *tap the soil to plant*.
-2. Red seed → sprouts → blooms in ~6 s (tutorial speed). Plant the blue seed next to it.
-3. A bee flies between the two blooms; a glowing seed pops up → tap to collect.
-4. Tap a bloom to harvest → coins fly to the counter; the plant regrows.
-5. Plant the hybrid seed → it blooms **purple** → *NEW SPECIES!* card → Flower Book opens up.
-6. First visitor order appears (*"a purple flower please!"*) → deliver → big reward → shop unlocks.
+Every tap does something; nothing asks the player to wait.
+1. Land directly in the garden (no title screen). A spotlight tutorial shows one action at a time with a pointing
+   hand; everything outside the spotlight waits, and wrong taps get a friendly nudge.
+2. Drag the red seed into the soil → tap the sprout (4 taps) → it blooms. Same with the blue seed.
+3. Drag from the red bloom onto the blue one → a pollen trail, a glowing hybrid seed pops out → tap it.
+4. Plant the mystery seed ("?" badge) → tap-tap-tap → *NEW SPECIES: Purple Blossom!*
+5. Harvest the three blooms quickly → *Combo ×3!* → reward card → starter quests begin (buy a plot, plant, cross,
+   discover, combo, order…), each with a reward and a pointing hand on request.
+6. ~45 s later the first golden bee drifts across the garden: tap it for a shower of coins.
+
+The active verbs and their numbers:
+- **Tap to grow**: +14 % of the grow time per tap, each further tap in the same growth cycle ×0.85 (so taps
+  matter a lot early and less for rare, slow flowers; the timer still matters). Tutorial taps are a flat 26 %.
+- **Cross by hand**: any two blooms, anywhere; both rest 8 s afterwards (a clock shows it). The seed flies to
+  the pouch after 3 s. Bees keep crossing adjacent blooms automatically (idle progress).
+- **Combos**: harvests less than 1.3 s apart chain; coins ×1.25 per step up to ×2.
+- **Golden bee**: every 75-150 s after the tutorial, 11 s on screen; pays max(40 + 25 × level, 6 × best bloom).
 
 ## Genetics
 A flower = `{ c1, c2, shape, pattern, mut }`.
@@ -51,7 +62,7 @@ Dewy (rain) ×2, Moonlit (night) ×3, Golden (golden hour) ×5, Rainbow (rainbow
 - Grow time = 10 s × (tierC + tierS − 1)^1.25; regrow after harvest = 55 % of that. Rain ×2 speed.
 - Bees: one pollination per bee every ~7 s (flight time) when two adjacent blooms exist.
 - Plots: start with 7 (radius 1 honeycomb), buy outward to 37. Cost 60 × 1.45^n.
-- Seed pouch: 8 slots, upgradable to 30.
+- Seed pouch: 12 kinds (identical seeds stack), +3 per upgrade.
 
 ## Progression
 - Gardener level from XP (harvest value, discoveries, orders). Levels unlock upgrades, weather, visitors.

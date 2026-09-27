@@ -472,7 +472,7 @@ class Game {
     const pinchState = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
     addEventListener('pointerdown', () => this._poke(), { capture: true });
     cv.addEventListener('pointerdown', (e) => {
-      if (ui.busy) return;
+      if (ui.busy || e.button > 0) return;          // right / middle clicks do nothing
       const p = pos(e);
       cv.setPointerCapture?.(e.pointerId);
       pts.set(e.pointerId, p);
@@ -688,28 +688,36 @@ class Game {
   }
 
   // drag a seed straight out of the pouch onto the soil (tapping the seed, then the soil, works too)
+  // The pouch scrolls sideways under the finger (handled here, so a diagonal drag toward the garden is never
+  // mistaken for a scroll by the browser); moving up out of it picks the seed up.
   _pouchDrag() {
     const ui = this.ui, list = ui.pouchList, cv = this.stage.canvas;
+    list.style.touchAction = 'none';
     let pd = null;
     const cpos = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     list.addEventListener('pointerdown', (e) => {
+      if (ui.busy || e.button > 0) return;
       const chip = e.target.closest?.('.seedchip');
-      if (!chip || ui.busy || e.button > 0) return;
-      pd = { id: e.pointerId, chip, idx: [...list.querySelectorAll('.seedchip')].indexOf(chip), x: e.clientX, y: e.clientY, on: false, ghost: null };
+      pd = { id: e.pointerId, chip, idx: chip ? [...list.querySelectorAll('.seedchip')].indexOf(chip) : -1, x: e.clientX, y: e.clientY, on: false, scroll: false, sl: list.scrollLeft, ghost: null };
     });
     addEventListener('pointermove', (e) => {
       if (!pd || e.pointerId !== pd.id) return;
       const dx = e.clientX - pd.x, dy = e.clientY - pd.y;
+      if (pd.scroll) { list.scrollLeft = pd.sl - dx; return; }
       if (!pd.on) {
-        if (dy < -12 && -dy > Math.abs(dx) * 0.7 && this.garden.s.pouch[pd.idx]) {
+        if (pd.chip && dy < -8 && -dy > Math.abs(dx) * 0.45 && this.garden.s.pouch[pd.idx]) {
           pd.on = true;
           pd.chip.dispatchEvent(new PointerEvent('pointerleave'));       // cancels the chip's long-press
           if (ui.sel !== pd.idx) ui.selectSeed(pd.idx);
           const img = pd.chip.querySelector('img');
           pd.ghost = ui.dragGhost(img ? img.outerHTML : '');
           pd.chip.classList.add('dragging');
-        } else if (Math.hypot(dx, dy) > 12) { pd = null; return; }    // sideways: the pouch scrolls instead
-        else return;
+        } else if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+          pd.scroll = true; pd.chip?.dispatchEvent(new PointerEvent('pointerleave'));
+          list.style.scrollBehavior = 'auto';
+          this._noClickUntil = performance.now() + 10000;
+          return;
+        } else return;
       }
       pd.ghost.style.transform = `translate(${e.clientX - 24}px, ${e.clientY - 44}px)`;
       const p = cpos(e), i = this.view.pickPlot(p.x, p.y), g = this.garden;
@@ -719,6 +727,7 @@ class Game {
       if (!pd || e.pointerId !== pd.id) return;
       const d = pd;
       pd = null;
+      if (d.scroll) { list.style.scrollBehavior = ''; this._noClickUntil = performance.now() + 250; return; }
       if (!d.on) return;
       d.ghost?.remove(); d.chip.classList.remove('dragging');
       this._noClickUntil = performance.now() + 350;
