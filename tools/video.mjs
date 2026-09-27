@@ -133,8 +133,10 @@ const STAGE = (o) => {
   if (G.ui.panel) G.ui.closePanel(true);
   document.querySelectorAll('.card-pop, .scrim, .toast, .float-txt, .flyer').forEach((e) => e.remove());
   G.ui.hoverInfo(0, 0, null);
-  // progression
+  // progression (achievements and starter quests settled silently: no toasts popping into the shots)
   s.level = o.level ?? 14; s.xp = Math.round((o.xpK ?? 0.55) * 4000); s.coins = o.coins ?? 12480;
+  { const emit = g.emit; g.emit = () => {}; s.quest.i = 999; g.checkAchievements(); g.emit = emit; s.coins = o.coins ?? 12480; }
+  document.querySelectorAll('.toast').forEach((e) => e.remove());
   s.upgrades.bees = 3; s.upgrades.gnome = 1; g.syncBees(); G.world.decor.setGnome(true);
   for (const id of o.decor ?? []) if (!s.decor[id]) { s.decor[id] = 1; G.world.decor.place(id, false); }
   // plots
@@ -166,7 +168,7 @@ const STAGE = (o) => {
   G.ui.dirty.pouch = G.ui.dirty.orders = true;
   // weather: set and fully blended, no announcement
   const kind = o.weather || 'clear';
-  s.weather = { kind, until: s.t + 9999, total: 9999 };
+  s.weather = { kind, until: s.t + 95, total: 140 };
   G._weather(kind, false);
   for (const k in G.world.weather.k) G.world.weather.k[k] = k === kind ? 1 : 0;
   g.tutorialSpeed = o.speed ?? 1;
@@ -486,7 +488,7 @@ for (const name of only) {
   await page.goto(`http://127.0.0.1:${port}/index.html?reset&quality=high&debug`);
   await page.waitForFunction(() => window.__game && document.getElementById('loading') == null, null, { timeout: 120000 });
   await page.evaluate(() => document.fonts.ready);
-  await page.evaluate((mode) => { __game.settings.quality = 'high'; __vt.start(); __cur.ensure(mode); }, fmt.touch ? 'touch' : 'mouse');
+  await page.evaluate((mode) => { __game.settings.quality = 'high'; __game.ui.hoverInfo = () => {}; __vt.start(); __cur.ensure(mode); }, fmt.touch ? 'touch' : 'mouse');
   const cdp = await context.newCDPSession(page);
   const rec = new Recorder(page, cdp, fmt, rng(name === 'landscape' ? 11 : 23));
   const clips = [];

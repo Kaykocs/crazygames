@@ -38,7 +38,7 @@ Tapping the quest chip shows where to do the current quest.
 npm run build        # → dist/ (index.html, game.js, game.css, 2 fonts) and build/buzz-and-bloom-1.0.0.zip
 ```
 
-Upload the zip, which has `index.html` at its root. The whole game is ~300 KB (≈125 KB gzipped) in 5 files,
+Upload the zip, which has `index.html` at its root. The whole game is ~490 KB (≈185 KB gzipped) in 5 files,
 all with relative paths. There are no image or audio assets: every flower, planter, prop, critter and UI icon
 is painted procedurally with Canvas 2D at runtime, and all sound and music is synthesised with Web Audio.
 
@@ -98,5 +98,8 @@ Game design notes (genetics tables, economy numbers, progression) are in [DESIGN
 4. Covers: `covers/cover-landscape-1920x1080.png`, `covers/cover-portrait-800x1200.png`,
    `covers/cover-square-800x800.png`. Only the title appears as text, as required.
 5. Check the name "Buzz & Bloom" is unique on the portal before submitting.
-6. Preview video (15–20 s, landscape + portrait): record `npm run dev` with a mature save, e.g. open
-   `?debug` and run `__game.debug.skipTutorial(); __game.debug.coins(100000)` in the console.
+6. Preview videos: `video/buzz-and-bloom-landscape.mp4` (1920×1080) and `video/buzz-and-bloom-portrait.mp4`
+   (1080×1920), ~22 s, 30 fps, silent, real gameplay with a human-paced cursor/finger: crossing two blooms by
+   dragging pollen, tap-to-grow into a new species, a harvest combo, catching a golden bee, a starry night,
+   buying land and sowing, placing a windmill, and the whole garden under a rainbow. Re-record with
+   `node tools/video.mjs` (add `--only=landscape|portrait`).

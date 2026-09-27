@@ -151,7 +151,8 @@ for (const name of only) {
     if (after.tut < 99) { errors++; console.log(`[${name}] tutorial did not finish`); }
     await page.waitForTimeout(1400);
     await shot('quest-hint');
-    // the first quest: tap the quest chip for a hint, then buy a plot where the hand points
+    // the first quest: tap the quest chip for a hint, then buy a plot where the hand points (once the camera settled)
+    await page.waitForFunction(() => { const c = __game.stage.cam, t = __game.stage.target; return Math.abs(c.x - t.x) < 0.01 && Math.abs(c.y - t.y) < 0.01 && Math.abs(c.ppu - t.ppu) < 0.3; }, null, { timeout: 60000 }).catch(() => {});
     let hint = await page.evaluate(() => { const h = __game.hint && __game._hintSpec(__game.hint.kind); return h?.hand?.tap || null; });
     if (!hint) {
       const chip = await page.evaluate(() => { const r = document.querySelector('.chip.goal').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
