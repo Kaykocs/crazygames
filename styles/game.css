@@ -98,7 +98,8 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .chip.weather.active { background: linear-gradient(90deg, #fff4c2, #fff8e8); }
 .goal .bar { width: 4.5em; height: 0.55em; border-radius: 999px; background: #f0dcb8; overflow: hidden; }
 .goal .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--rose), #ffa0c0); transition: width .5s var(--out); }
-.goal .txt { max-width: 13em; overflow: hidden; text-overflow: ellipsis; }
+/* long goals wrap to a second line rather than losing their "(1/3)" count to an ellipsis */
+.goal .txt { max-width: 13em; overflow: hidden; text-overflow: ellipsis; white-space: normal; line-height: 1.15; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 
 /* ------------------------------------------------------------------ orders */
 .orders {
@@ -106,7 +107,7 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
   right: calc(0.6em + var(--safe-r)); top: calc(3.7em + var(--safe-t)); flex-direction: column; align-items: flex-end;
 }
 .order {
-  display: flex; align-items: center; gap: 0.35em; padding: 0.3em 0.55em 0.3em 0.3em; width: 12.5em;
+  display: flex; align-items: center; gap: 0.35em; padding: 0.3em 0.55em 0.3em 0.3em; width: 13.5em;
   background: var(--cream); border: 0.16em solid #fff; border-radius: 1.1em; box-shadow: var(--shadow);
   animation: pop-in .45s var(--spring) backwards; position: relative;
 }
@@ -114,12 +115,15 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .order .who { width: 2.6em; height: 2.6em; flex: none; border-radius: 50%; background: #e9f6ff; display: grid; place-items: center; overflow: hidden; }
 .order .who svg { width: 2.5em; height: 2.5em; }
 .order .want { flex: 1; min-width: 0; line-height: 1.1; }
-.order .want b { display: block; font-size: max(11px, 0.8em); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the request is the one thing the player must read: wrap (up to three lines) instead of "Two-tone Lav…" */
+.order .want b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; font-size: max(11px, 0.8em); font-weight: 700; line-height: 1.12; overflow: hidden; text-overflow: ellipsis; }
 .order .want small { font-size: max(11px, 0.68em); color: var(--ink2); font-weight: 600; display: flex; align-items: center; gap: 0.2em; }
 .order .want small .ico { width: 1.3em; height: 1.3em; }
 .order .need { width: 2.3em; height: 2.3em; flex: none; display: grid; place-items: center; position: relative; }
 .order .need svg, .order .need img { width: 2.3em; height: 2.3em; }
 .order .need .n { position: absolute; right: -0.35em; bottom: -0.25em; font-size: max(11px, 0.7em); font-weight: 700; background: var(--ink); color: #fff; border-radius: 999px; padding: 0 0.4em; }
+.order .need .pat { position: absolute; right: -0.3em; top: -0.2em; width: max(13px, 1.05em); height: max(13px, 1.05em); border-radius: 50%; overflow: hidden; border: 0.09em solid #fff; box-shadow: 0 0 0 0.06em var(--ol); }
+.order .need .pat svg { width: 100%; height: 100%; }
 .order.done { animation: order-done .7s var(--out) forwards; }
 @keyframes order-done { 30% { transform: scale(1.08); } 100% { transform: translateX(120%); opacity: 0; } }
 .order .ago { position: absolute; left: 0.35em; right: 0.35em; bottom: 0.14em; height: 0.18em; border-radius: 99px; background: rgba(74, 46, 30, 0.12); overflow: hidden; }
@@ -150,22 +154,32 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 
 .pouch {
   flex: 0 1 34em; min-width: 0; margin: 0 auto; background: rgba(255, 248, 232, 0.94); border: 0.16em solid #fff; border-radius: 1.2em; box-shadow: var(--shadow);
-  padding: 0.3em 0.4em 0.35em; display: flex; flex-direction: column; gap: 0.2em;
+  padding: 0.2em 0.1em 0.3em; display: flex; flex-direction: column;
+  --chip: 3.3em;   /* seed chip size (smaller on short screens, at least 44 px on touch) */
 }
-.pouch-head { display: flex; justify-content: space-between; align-items: center; padding: 0 0.3em; font-size: max(11px, 0.72em); font-weight: 700; color: var(--ink2); }
-.pouch-head .full { color: var(--rose-d); }
-.pouch-list { display: flex; gap: 0.35em; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 0.15em 0.1em 0.2em; scroll-behavior: smooth; touch-action: pan-x; }
+.pouch-head { display: flex; justify-content: space-between; align-items: center; gap: 0.6em; margin: 0 0.3em; padding: 0.1em 0.3em; border-radius: 0.7em; font-size: max(11px, 0.72em); font-weight: 700; color: var(--ink2); white-space: nowrap; }
+.pouch-head > span { display: flex; align-items: center; gap: 0.3em; min-width: 0; }
+.pouch-head > span:last-child { flex: none; }   /* the "12/15 kinds" count never shrinks; the left text gives way */
+.pouch-head .t { overflow: hidden; text-overflow: ellipsis; }
+.pouch-head .ico { width: 1.45em; height: 1.45em; margin: -0.25em 0; flex: none; }
+.pouch-head .short { display: none; }
+/* the list keeps room around the chips for the lifted selected chip, its ring and the corner badges: a scroll
+   container clips everything that pokes out of its padding box */
+.pouch-list { display: flex; gap: 0.35em; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: max(0.9em, 12.5px) 0.5em 0.3em; min-height: calc(var(--chip) + max(0.9em, 12.5px) + 0.3em); touch-action: pan-x; }
 .pouch-list::-webkit-scrollbar { display: none; }
 .seedchip {
-  flex: none; width: 3.3em; height: 3.3em; border-radius: 0.95em; display: grid; place-items: center; position: relative;
+  flex: none; width: var(--chip); height: var(--chip); border-radius: 0.95em; display: grid; place-items: center; position: relative;
   background: #fff; border: 0.14em solid #f1dfbf; box-shadow: 0 0.18em 0 #e8d2ad; transition: transform .15s var(--spring), border-color .15s;
 }
-.seedchip svg, .seedchip img { width: 2.7em; height: 2.7em; }
-.seedchip .n { position: absolute; right: -0.25em; bottom: -0.25em; font-size: max(11px, 0.66em); font-weight: 700; background: var(--ink); color: #fff; border-radius: 999px; padding: 0.05em 0.4em; border: 0.12em solid #fff; }
-.seedchip .new { position: absolute; left: -0.3em; top: -0.35em; font-size: max(11px, 0.55em); font-weight: 700; background: var(--rose); color: #fff; border-radius: 999px; padding: 0.1em 0.4em; border: 0.12em solid #fff; }
-.seedchip.sel { transform: translateY(-0.35em) scale(1.06); border-color: var(--leaf); box-shadow: 0 0.18em 0 var(--leaf-d), 0 0 0 0.18em rgba(92, 193, 90, 0.35); }
+.seedchip svg, .seedchip img { width: max(2.7em, 80%); height: max(2.7em, 80%); }
+.seedchip .n { position: absolute; right: -0.25em; bottom: -0.25em; font-size: max(11px, 0.66em); font-weight: 700; background: var(--ink); color: #fff; border-radius: 999px; padding: 0.05em 0.4em; border: 0.12em solid #fff; line-height: 1.2; }
+.seedchip .new { position: absolute; left: -0.3em; top: -0.55em; font-size: max(11px, 0.55em); font-weight: 700; background: var(--rose); color: #fff; border-radius: 999px; padding: 0.1em 0.4em; border: 0.12em solid #fff; line-height: 1.2; }
+/* pattern badge (top-right): the pattern glyph in the second colour; never shares a corner with NEW or ×n */
+.seedchip .pat { position: absolute; top: -0.28em; right: -0.28em; width: max(15px, 1.3em); height: max(15px, 1.3em); border-radius: 50%; overflow: hidden; border: 0.1em solid #fff; }
+.seedchip .pat svg { width: 100%; height: 100%; }
+.seedchip.sel { transform: translateY(-0.25em) scale(1.05); border-color: var(--leaf); box-shadow: 0 0.18em 0 var(--leaf-d), 0 0 0 0.18em rgba(92, 193, 90, 0.35); }
 .seedchip.enter { animation: pop-in .4s var(--spring); }
-.pouch-empty { font-size: max(11px, 0.75em); color: var(--muted); font-weight: 600; padding: 0.9em 0.5em; white-space: nowrap; }
+.pouch-empty { align-self: center; font-size: max(11px, 0.75em); color: var(--muted); font-weight: 600; padding: 0 0.3em; line-height: 1.25; text-wrap: balance; }
 
 /* ------------------------------------------------------------------ world labels, toasts, fly-ups */
 .labels { position: absolute; inset: 0; overflow: hidden; }
@@ -189,7 +203,8 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 @keyframes shake { 20%, 60% { margin-left: -0.3em; } 40%, 80% { margin-left: 0.3em; } }
 .hover-tip { position: absolute; left: 0; top: 0; will-change: transform; transform: translate(-50%, calc(-100% - 22px)); display: flex; align-items: center; gap: 0.35em; padding: 0.3em 0.7em 0.3em 0.45em; border-radius: 0.8em;
   background: rgba(74, 46, 30, 0.92); color: #fff; font-size: max(11px, 0.78em); font-weight: 600; white-space: nowrap; pointer-events: none; box-shadow: 0 0.3em 0.8em rgba(0, 0, 0, 0.25); }
-.hover-tip svg, .hover-tip img { width: 1.5em; height: 1.5em; }
+.hover-tip svg, .hover-tip img { width: 1.5em; height: 1.5em; flex: none; }
+.hover-tip.below { transform: translate(-50%, 26px); }
 .float-txt { position: absolute; transform: translate(-50%, -50%); font-family: 'Lilita One', sans-serif; font-size: 1.15em; color: #fff; white-space: nowrap;
   -webkit-text-stroke: 0.18em var(--ink); paint-order: stroke fill; animation: float-up 1.1s var(--out) forwards; }
 .float-txt.gold { color: #ffd84a; }
@@ -198,10 +213,11 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .flyer { position: absolute; left: 0; top: 0; width: 1.6em; height: 1.6em; will-change: transform; }
 .flyer svg, .flyer img { width: 100%; height: 100%; }
 
-.toasts { position: absolute; left: 50%; top: calc(4.2em + var(--safe-t)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.35em; }
+/* full-width column (a left: 50% box would only get half the screen to wrap in); toasts wrap on narrow screens */
+.toasts { position: absolute; left: max(var(--side, 0px), calc(0.75em + var(--safe-l))); right: max(var(--side, 0px), calc(0.75em + var(--safe-r))); top: calc(4.5em + var(--safe-t)); display: flex; flex-direction: column; align-items: center; gap: 0.35em; }
 .toast {
-  display: flex; align-items: center; gap: 0.45em; padding: 0.4em 0.9em 0.4em 0.45em; border-radius: 999px; background: var(--ink); color: #fff;
-  font-weight: 600; font-size: max(11px, 0.85em); box-shadow: 0 0.3em 0.8em rgba(0, 0, 0, 0.25); animation: toast-in .4s var(--spring), toast-out .4s ease-in forwards; animation-delay: 0s, var(--life, 2.4s); white-space: nowrap;
+  display: flex; align-items: center; gap: 0.45em; padding: 0.4em 0.9em 0.4em 0.45em; border-radius: 1.2em; background: var(--ink); color: #fff; max-width: min(100%, 32em);
+  font-weight: 600; font-size: max(11px, 0.85em); line-height: 1.2; text-wrap: balance; box-shadow: 0 0.3em 0.8em rgba(0, 0, 0, 0.25); animation: toast-in .4s var(--spring), toast-out .4s ease-in forwards; animation-delay: 0s, var(--life, 2.4s);
 }
 .toast .ico, .toast svg, .toast img { width: 1.6em; height: 1.6em; }
 /* text and bold words flow inline (a flex row would put gaps around every <b>) */
@@ -216,12 +232,14 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 /* ------------------------------------------------------------------ modal panels */
 .modal-layer { position: absolute; inset: 0; z-index: 50; }
 .tut-layer { position: absolute; inset: 0; z-index: 40; }
-.toasts { z-index: 45; }
+.toasts { z-index: 60; }   /* above panels and cards: "Not enough coins", "Pouch full!" are raised from inside the shop */
+/* while a panel or card is open the HUD is dimmed: toasts use the top edge and the full width, clear of the panel */
+#ui:has(.modal-layer > .scrim) .toasts { top: calc(0.55em + var(--safe-t)); left: calc(0.75em + var(--safe-l)); right: calc(0.75em + var(--safe-r)); }
 .scrim { position: absolute; inset: 0; background: rgba(40, 26, 18, 0.45); backdrop-filter: blur(3px); animation: fade .25s both; pointer-events: auto; }
 @keyframes fade { from { opacity: 0; } }
 .panel {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: auto;
-  width: min(34em, calc(100vw - 1.2em)); max-height: calc(100% - 2.4em - var(--safe-t) - var(--safe-b));
+  width: min(34em, calc(100vw - 1.2em - var(--safe-l) - var(--safe-r))); max-height: calc(100% - 2.4em - var(--safe-t) - var(--safe-b));
   display: flex; flex-direction: column; background: var(--paper); border: 0.25em solid #fff; border-radius: 1.6em;
   box-shadow: 0 0.5em 0 rgba(74, 46, 30, 0.25), 0 1.2em 3em rgba(40, 20, 10, 0.35);
   animation: panel-in .45s var(--spring) both;
@@ -253,7 +271,8 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .card .art { width: 4em; height: 4em; display: grid; place-items: center; }
 .card .art svg, .card .art img { width: 100%; height: 100%; }
 .card .name { font-weight: 700; font-size: max(11px, 0.82em); line-height: 1.1; min-height: 2.2em; display: flex; align-items: center; }
-.card .sub { font-size: max(11px, 0.68em); color: var(--ink2); font-weight: 600; }
+.card .sub { font-size: max(11px, 0.68em); color: var(--ink2); font-weight: 600; text-wrap: balance; }
+.card > .btn { margin-top: auto; }   /* buttons line up along a row even when a description wraps */
 .card.sold { opacity: 0.5; }
 .stars { display: flex; gap: 0.05em; justify-content: center; }
 .stars .ico { width: 0.95em; height: 0.95em; }
@@ -294,8 +313,11 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 /* flower book */
 .book-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; margin-bottom: 0.5em; font-weight: 700; }
 .book-top .prog { flex: 1; height: 0.8em; margin: 0; }
-.book-grid { display: grid; grid-template-columns: auto repeat(8, 1fr); gap: 0.2em; align-items: center; }
-.book-grid .hdr { font-size: max(11px, 0.55em); font-weight: 700; color: var(--ink2); text-align: center; line-height: 1; }
+/* equal columns: a long header ("Pinwheel") may spill a few px into the gap instead of widening its column,
+   whose cells are square and would come out bigger than the rest */
+.book-grid { display: grid; grid-template-columns: auto repeat(8, minmax(0, 1fr)); gap: 0.2em; align-items: center; }
+.book-grid .hdr { font-size: max(11px, 0.55em); font-weight: 700; color: var(--ink2); text-align: center; line-height: 1; white-space: nowrap; }
+@media (max-width: 350px) { .book-grid .hdr { white-space: normal; } }   /* "Pin-wheel" on the narrowest phones */
 .book-grid .clr { width: 1.1em; height: 1.1em; border-radius: 50%; border: 0.12em solid #fff; box-shadow: 0 0 0 0.08em rgba(74, 46, 30, 0.3); }
 .book-cell { aspect-ratio: 1; border-radius: 0.6em; background: #fff; display: grid; place-items: center; border: 0.1em solid #f1dfbf; position: relative; min-width: 0; }
 .book-cell svg, .book-cell img { width: 88%; height: 88%; }
@@ -305,7 +327,8 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .book-cell.row-done { background: #fff6d6; }
 .book-cell .m { position: absolute; right: 0.05em; top: 0.05em; width: 0.45em; height: 0.45em; border-radius: 50%; background: var(--honey); }
 .book-cell:active { transform: scale(0.94); }
-.book-note { margin-top: 0.6em; font-size: max(11px, 0.78em); color: var(--ink2); font-weight: 600; text-align: center; min-height: 2.4em; }
+.book-note { font-size: max(11px, 1em); color: var(--ink2); font-weight: 600; text-align: center; min-height: 2.5em; line-height: 1.25; display: flex; align-items: center; justify-content: center; text-wrap: balance; }
+.book-note b { color: var(--ink); }
 
 /* settings */
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 0.8em; padding: 0.6em 0.4em; border-bottom: 0.1em dashed #ecd3a9; font-weight: 600; }
@@ -319,8 +342,9 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 
 /* celebration cards */
 .card-pop {
-  position: absolute; left: 50%; top: 48%; transform: translate(-50%, -50%); pointer-events: auto; text-align: center;
-  width: min(22em, calc(100vw - 2em)); padding: 1.1em 1.1em 1.2em; background: var(--paper); border: 0.25em solid #fff; border-radius: 1.8em;
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: auto; text-align: center;
+  width: min(22em, calc(100vw - 2em - var(--safe-l) - var(--safe-r))); padding: 1.1em 1.1em 1.2em; background: var(--paper); border: 0.25em solid #fff; border-radius: 1.8em;
+  max-height: calc(100% - 1.4em - var(--safe-t) - var(--safe-b)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
   box-shadow: 0 0.5em 0 rgba(74, 46, 30, 0.25), 0 1.2em 3em rgba(40, 20, 10, 0.35); animation: panel-in .55s var(--spring) both;
 }
 .card-pop.leaving { animation: panel-out .22s ease-in forwards; }
@@ -333,15 +357,19 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 }
 .card-pop .hero > * { position: relative; }
 .card-pop .hero svg, .card-pop .hero img { position: relative; width: 100%; height: 100%; animation: hero-bob 2.4s ease-in-out infinite; }
+/* several discoveries in one card: a 2×2 (or 3×2 for five or six) bunch instead of one full-size hero each */
+.card-pop .hero .bunch > img { width: 48%; height: 48%; }
+.card-pop .hero .bunch > img:first-child:nth-last-child(n+5), .card-pop .hero .bunch > img:first-child:nth-last-child(n+5) ~ img { width: 32%; height: 32%; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes hero-bob { 50% { transform: translateY(-0.25em) rotate(3deg); } }
-.card-pop .title { font-size: 1.25em; font-weight: 700; }
-.card-pop .desc { font-size: max(11px, 0.85em); color: var(--ink2); font-weight: 600; margin: 0.3em 0 0.8em; line-height: 1.3; }
+.card-pop .title { font-size: 1.25em; font-weight: 700; line-height: 1.2; text-wrap: balance; }
+.card-pop .desc { font-size: max(11px, 0.85em); color: var(--ink2); font-weight: 600; margin: 0.3em 0 0.8em; line-height: 1.3; text-wrap: pretty; }
 .card-pop .reward { display: inline-flex; align-items: center; gap: 0.3em; font-weight: 700; font-size: 1.1em; margin-bottom: 0.8em; }
 .card-pop .reward .ico { width: 1.6em; height: 1.6em; }
-.card-pop .list { text-align: left; margin: 0 auto 0.9em; font-size: max(11px, 0.85em); font-weight: 600; display: flex; flex-direction: column; gap: 0.3em; max-width: 17em; }
+.card-pop .list { text-align: left; margin: 0 auto 0.9em; font-size: max(11px, 0.85em); font-weight: 600; display: flex; flex-direction: column; gap: 0.3em; max-width: 19em; line-height: 1.25; text-wrap: pretty; }
 .card-pop .list div { display: flex; gap: 0.4em; align-items: center; }
-.card-pop .list .ico { width: 1.4em; height: 1.4em; flex: none; }
+.card-pop .list .ico, .card-pop .list .flower-ico { width: 1.4em; height: 1.4em; flex: none; }
+.card-pop .btns { display: flex; gap: 0.5em; justify-content: center; flex-wrap: wrap; }
 .tag { display: inline-block; font-size: max(11px, 0.7em); font-weight: 700; padding: 0.15em 0.6em; border-radius: 999px; background: var(--plum); color: #fff; margin-bottom: 0.4em; }
 
 /* tutorial */
@@ -400,22 +428,55 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 @media (max-aspect-ratio: 4/5) {
   .orders { left: calc(0.5em + var(--safe-l)); right: calc(0.5em + var(--safe-r)); top: calc(4.6em + var(--safe-t)); flex-direction: row; justify-content: center; align-items: stretch; }
   .order { width: auto; flex: 1 1 0; min-width: 0; max-width: 12em; flex-direction: column; padding: 0.3em 0.3em 0.45em; gap: 0.1em; text-align: center; }
-  .order .who { position: absolute; left: -0.35em; top: -0.35em; width: 2em; height: 2em; border: 0.12em solid #fff; }
+  .order .who { position: absolute; left: -0.4em; top: -0.4em; width: 1.85em; height: 1.85em; border: 0.12em solid #fff; }
   .order .who svg { width: 1.95em; height: 1.95em; }
   .order .need { width: 2.2em; height: 2.2em; }
-  .order .want b { font-size: max(11px, 0.7em); }
+  /* the text column spans the card (a centred max-content box spilled out of both sides); the first line starts
+     after the visitor portrait in the corner, so "Rainbow flower" is never read as "inbow flower" */
+  .order .want { align-self: stretch; }
+  .order .want b { font-size: max(11px, 0.7em); text-indent: 1.35em; }
   .order .want small { justify-content: center; font-size: max(11px, 0.66em); }
-  .hud-sub { top: auto; bottom: calc(6.3em + var(--safe-b)); }
+  /* just above the bottom bar (its height is measured in UI.insets; it grows with 44 px touch targets) */
+  .hud-sub { top: auto; bottom: calc(var(--bar-h, 7.4em) + 0.4em); }
   .xp { width: 6.5em; }
-  .toasts { top: calc(9.5em + var(--safe-t)); }
+  /* just under the row of orders (its bottom edge is measured in UI.insets) */
+  .toasts { top: calc(var(--orders-b, 9.5em) + 0.5em); }
 }
 /* short landscape screens (phones sideways, small iframes) */
 @media (max-height: 520px) and (min-aspect-ratio: 4/5) {
   :root { --u: clamp(12px, 1.9vmin + 4px, 16px); }
   .tool { width: 3.2em; height: 3.2em; }
-  .seedchip { width: 3em; height: 3em; }
-  .order { width: 11em; padding: 0.2em 0.45em 0.2em 0.2em; }
+  .pouch { --chip: 3em; }
+  .order { width: 13em; padding: 0.2em 0.45em 0.2em 0.2em; }
+  .order .want b { -webkit-line-clamp: 2; line-clamp: 2; }   /* keeps the column short; tap a card for the full request */
   .order .who { width: 2.2em; height: 2.2em; }
+}
+
+/* short screens (phones sideways, small iframes): smaller card art so every card fits without scrolling */
+@media (max-height: 520px) {
+  .card-pop { padding: 0.8em 1.1em 0.9em; }
+  .card-pop .hero { width: 5.6em; height: 5.6em; margin: 0.1em auto 0.2em; }
+  .card-pop .hero .display { font-size: 3.2em !important; }
+  .card-pop .kicker { font-size: 1.45em; }
+  .card-pop .desc { margin: 0.2em 0 0.6em; }
+  .card-pop .list { margin-bottom: 0.6em; gap: 0.2em; }
+  .card-pop .reward { margin-bottom: 0.6em; }
+  .card-pop .btn.big { padding: 0.4em 1.4em; }
+}
+
+/* touch: every control is at least 44 px to a finger. Small-looking controls keep their size and get an invisible
+   hit area around them (a centred pseudo-element at least 44 px square); chips and tools simply grow. */
+@media (pointer: coarse) {
+  .pouch { --chip: max(44px, 3.3em); }
+  .tool { min-width: 44px; min-height: 44px; }
+  .order { min-height: 44px; }
+  .top-btns { gap: max(0.45em, 12px); }
+  .tab, .btn, .seg button, .chip.goal { position: relative; }
+  .round-btn::after, .close::after, .tab::after, .btn::after, .seg button::after, .switch::before, .chip.goal::after {
+    content: ''; position: absolute; inset: min(0px, calc(50% - 22px)); z-index: 1;
+  }
+  .seg button { min-width: 44px; }
+  .card-pop .btns { row-gap: 1.1em; }   /* stacked buttons ("Sell 1" over "Sell all") keep separate 44 px targets */
 }
 
 /* ------------------------------------------------------------------ cover art title (store images only) */
@@ -465,7 +526,7 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
   box-shadow: inset 0 0.12em 0 #fff, 0 0.2em 0 var(--ol), 0 0.45em 0.8em rgba(40, 20, 10, 0.25); }
 .order.special { background: linear-gradient(180deg, #fff6c8, #ffd970); }
 .order .who { background: radial-gradient(circle at 50% 35%, #f2fbff, #cfe8f7); box-shadow: inset 0 0 0 0.1em var(--ol-soft); }
-.order .who img { width: 2.5em; height: 2.5em; }
+.order .who img { width: 96%; height: 96%; }   /* the portrait fills its round frame at every frame size */
 .order .need .n { border: 0.1em solid #fff; }
 
 .pouch { background: linear-gradient(180deg, rgba(255, 252, 242, 0.97), rgba(255, 238, 206, 0.97)); border: 0.16em solid var(--ol);
@@ -473,6 +534,19 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 .seedchip { background: radial-gradient(circle at 50% 35%, #ffffff, #fff3da); border: 0.13em solid var(--ol-soft); box-shadow: inset 0 -0.2em 0 #f3e0bd, 0 0.14em 0 var(--ol-soft); }
 .seedchip.sel { border-color: #2f7a34; box-shadow: inset 0 -0.2em 0 #d6f2c6, 0 0.16em 0 #2f7a34, 0 0 0 0.2em rgba(92, 193, 90, 0.4); background: radial-gradient(circle at 50% 35%, #ffffff, #e8fbdc); }
 .seedchip .n, .seedchip .new { border-color: #fff; }
+.seedchip .pat { box-shadow: 0 0 0 0.07em var(--ol), 0 0.1em 0.16em rgba(40, 20, 10, 0.3); }
+/* full pouch: a warm header that says what to do */
+.pouch.full { background: linear-gradient(180deg, rgba(255, 246, 240, 0.97), rgba(255, 226, 216, 0.97)); }
+.pouch.full .pouch-head { background: linear-gradient(180deg, #ffe3ea, #ffcbd8); color: #b3325c; box-shadow: inset 0 0 0 0.09em rgba(201, 64, 106, 0.35); }
+.pouch.nudge { animation: nudge .45s ease-in-out; }
+@keyframes nudge { 20%, 60% { translate: -0.35em 0; } 40%, 80% { translate: 0.35em 0; } }
+.pouch-head.tight .long { display: none; }
+.pouch-head.tight .short { display: inline; }
+/* seed details card: the pattern and its second colour, with the same badge as the pouch chip */
+.card-pop .variant { display: flex; align-items: center; justify-content: center; gap: 0.35em; font-weight: 700; color: var(--ink); margin-bottom: 0.25em; }
+.pat-i { flex: none; width: 1.45em; height: 1.45em; border-radius: 50%; overflow: hidden; border: 0.1em solid #fff; box-shadow: 0 0 0 0.07em var(--ol); }
+.pat-i svg { width: 100%; height: 100%; }
+.card-pop .desc .stars { margin-bottom: 0.2em; }
 
 .tool { background: linear-gradient(180deg, #fffdf6, #ffe9c2); border: 0.15em solid var(--ol);
   box-shadow: inset 0 0.15em 0 #fff, inset 0 -0.25em 0 var(--edge), 0 0.24em 0 var(--ol), 0 0.55em 1em rgba(40, 20, 10, 0.3); }

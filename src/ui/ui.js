@@ -1,7 +1,7 @@
 // DOM UI: HUD, orders, seed pouch, tools, world labels, toasts, panels (shop / book / settings), celebration
 // cards and the tutorial pointer. Reads game state from the Garden; every change goes through `api`.
-import { icon, flowerSVG, seedSVG, visitorSVG, decorIcon, weatherIcon } from './icons.js';
-import { COLORS, SHAPES, PATTERNS, MUTATIONS, flowerName, speciesName, speciesOf, colorRecipe, shapeRecipe, rarity, flowerValue, growTime, SPECIES_COUNT, speciesId } from '../game/genetics.js';
+import { icon, flowerSVG, seedSVG, visitorSVG, decorIcon, weatherIcon, patternBadge } from './icons.js';
+import { COLORS, SHAPES, PATTERNS, MUTATIONS, flowerName, speciesName, speciesOf, colorRecipe, shapeRecipe, rarity, flowerValue, growTime, SPECIES_COUNT, speciesId, secondColor } from '../game/genetics.js';
 import { UPGRADES, upgradeCost, xpForLevel, DECOR, ACHIEVEMENTS, VISITORS, orderText, SHOP_RESTOCK, ORDER_TTL, unlocked } from '../game/economy.js';
 import { ADS_ENABLED, GAME_TITLE } from '../config.js';
 
@@ -31,6 +31,7 @@ export class UI {
     this.dirty = { pouch: true, orders: true, tools: true, hud: true };
     this._build();
     this._warmIcons();
+    document.fonts?.ready.then(() => this._fitPouchHead());
   }
 
   // Paint the Flower Book icons a few at a time while the player is busy elsewhere, so opening the book is instant.
@@ -91,6 +92,13 @@ export class UI {
     this.pouchHead = el('div', 'pouch-head', '');
     this.pouchList = el('div', 'pouch-list');
     this.pouchEl.append(this.pouchHead, this.pouchList);
+    // a mouse wheel scrolls the pouch sideways (trackpads and touch already do)
+    this.pouchList.addEventListener('wheel', (e) => {
+      const l = this.pouchList;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || l.scrollWidth <= l.clientWidth) return;
+      l.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 20 : 1);
+      e.preventDefault();
+    }, { passive: false });
     this.canBtn = el('button', 'tool', `${icon('can')}<span class="badge">3</span>`);
     this.canBtn.setAttribute('aria-label', 'Watering can');
     this.canBtn.onclick = () => this.setTool(this.tool === 'water' ? '' : 'water');
@@ -119,6 +127,10 @@ export class UI {
     const t = this.topEl.getBoundingClientRect();
     const o = this.ordersEl.getBoundingClientRect();
     const portrait = W / H < 0.8;
+    // portrait: toasts sit just under the orders row and the chips just above the bottom bar, whose sizes vary
+    this.root.style.setProperty('--orders-b', `${Math.round(o.height ? o.bottom : t.bottom)}px`);
+    this.root.style.setProperty('--bar-h', `${Math.round(H - b.top)}px`);
+    this._fitPouchHead();
     let top = t.bottom + 6, right = 8, left = 8;
     if (portrait) top = Math.max(top, (o.height ? o.bottom : t.bottom) + 8);
     else if (o.height) right = Math.max(right, W - o.left + 6);
@@ -206,14 +218,20 @@ export class UI {
     if (this.sel >= s.pouch.length) this.sel = -1;
     const cap = g.pouchCap();
     const total = g.pouchCount();
-    const head = `<span>Seed pouch · ${total} seed${total === 1 ? '' : 's'}</span><span class="${s.pouch.length >= cap ? 'full' : ''}">${s.pouch.length}/${cap} kinds</span>`;
-    if (this._pouchHead !== head) { this._pouchHead = head; this.pouchHead.innerHTML = head; }
+    const full = s.pouch.length >= cap;
+    const seeds = `${fmt(total)} seed${total === 1 ? '' : 's'}`;
+    // a full pouch turns warm and says what to do (short wording on narrow phones)
+    const head = full
+      ? `<span>${icon('up_pouch')}<span class="t long">Pouch full — plant or sell seeds</span><span class="t short">Full — plant or sell</span></span><span>${s.pouch.length}/${cap}</span>`
+      : `<span><span class="t long">Seed pouch · ${seeds}</span><span class="t short">${seeds}</span></span><span>${s.pouch.length}/${cap} kinds</span>`;
+    if (this._pouchHead !== head) { this._pouchHead = head; this.pouchHead.innerHTML = head; this.pouchEl.classList.toggle('full', full); this._fitPouchHead(); }
     // only rebuild the chips when the pouch contents change (keeps the scroll position and avoids flicker)
     const sig = s.pouch.map((e) => `${keyOf(e.g)}x${e.n}:${s.book[speciesId(e.g)] ? 1 : 0}`).join('|') + `/${s.tutorial < 99}`;
     if (sig === this._pouchSig) { this._markSel(); return; }
     this._pouchSig = sig;
     this._rebuilds = (this._rebuilds || 0) + 1;
     const scroll = list.scrollLeft;
+    this._chipTip(null);
     list.innerHTML = '';
     if (!s.pouch.length) {
       list.appendChild(el('div', 'pouch-empty', s.tutorial < 99 ? 'Your seeds appear here' : 'No seeds — tap seed bubbles or visit the shop'));
@@ -223,26 +241,56 @@ export class UI {
     s.pouch.forEach((e, i) => {
       const k = keyOf(e.g);
       const known = !!book[speciesId(e.g)];
+      // known variants get a pattern badge (top-right); mystery seeds show shape and pattern on the seed itself
       const b = el('button', 'seedchip' + (i === this.sel ? ' sel' : '') + (this.seenPouch.has(k) ? '' : ' enter'),
-        `${known ? flowerSVG(e.g, { size: 40 }) : seedSVG(e.g, 40)}${e.n > 1 ? `<span class="n">×${e.n}</span>` : ''}${known ? '' : '<span class="new">NEW</span>'}`);
-      b.title = known ? flowerName(e.g) : 'Unknown hybrid — plant it to find out!';
+        `${known ? flowerSVG(e.g, { size: 40 }) + patternBadge(e.g) : seedSVG(e.g, 40)}${e.n > 1 ? `<span class="n">×${stackCount(e.n)}</span>` : ''}${known ? '' : '<span class="new">NEW</span>'}`);
+      // the full variant name: the game's tooltip on hover (mouse), the details card on press-and-hold (touch)
+      const pd = e.g.pattern ? ` · ${patternDesc(e.g)}` : '';
+      const tip = known ? `${flowerSVG(e.g, { size: 20 })}<span><b>${flowerName(e.g)}</b>${pd}</span>` : `${seedSVG(e.g, 20)}<span><b>Mystery seed</b>${pd} — plant it to find out!</span>`;
+      b.setAttribute('aria-label', `${known ? variantName(e.g) : `Mystery seed${pd}`}${e.n > 1 ? `, ${e.n} seeds` : ''}`);
       this.seenPouch.add(k);
-      b.onclick = () => this.selectSeed(i === this.sel ? -1 : i);
-      b.oncontextmenu = (ev) => { ev.preventDefault(); this.seedDetails(i); };
-      let pressT = null;
-      b.onpointerdown = () => { pressT = setTimeout(() => { pressT = null; this.seedDetails(i); }, 520); };
-      b.onpointerup = b.onpointerleave = () => { if (pressT) clearTimeout(pressT); };
+      // tap selects; press-and-hold (touch) or right-click (mouse) opens the details card with Sell. A scroll of the
+      // pouch cancels the press, and the click / contextmenu that follow a long press don't act a second time.
+      let pressT = null, held = false;
+      const cancel = () => { if (pressT) { clearTimeout(pressT); pressT = null; } };
+      const details = () => { held = true; this._chipTip(null); swallowNextClick(); this.seedDetails(i); };
+      b.onclick = () => { if (held) { held = false; return; } this.selectSeed(i === this.sel ? -1 : i); };
+      b.oncontextmenu = (ev) => { ev.preventDefault(); if (held) return; cancel(); details(); };
+      b.onpointerdown = (ev) => { held = false; cancel(); if (ev.button === 0) pressT = setTimeout(() => { pressT = null; details(); }, 520); };
+      b.onpointerup = b.onpointercancel = cancel;
+      b.onpointerenter = (ev) => { if (ev.pointerType === 'mouse') this._chipTip(b, tip); };
+      b.onpointerleave = () => { cancel(); this._chipTip(null); };
       list.appendChild(b);
     });
     list.scrollLeft = scroll;
   }
   _markSel() { [...this.pouchList.children].forEach((c, i) => c.classList?.toggle('sel', i === this.sel)); }
+  // the short header wording, only where the long one doesn't fit (checked on change and on resize)
+  _fitPouchHead() {
+    const h = this.pouchHead, t = h.querySelector('.t.long');
+    h.classList.remove('tight');
+    if (t && t.scrollWidth > t.clientWidth + 1) h.classList.add('tight');
+  }
+  // hover tooltip for a pouch chip, just above it (null hides it)
+  _chipTip(b, html) {
+    if (!b) { if (this._tipChip) { this._tipChip = null; this.hoverInfo(0, 0, null); } return; }
+    this._tipChip = b;
+    const r = b.getBoundingClientRect();
+    this.hoverInfo(r.left + r.width / 2, r.top + 14, html);
+  }
 
   selectSeed(i) {
     this.sel = i;
     if (i >= 0) this.tool = '';
     this.api.sound(i >= 0 ? 'pick' : 'toggle', { pitch: i >= 0 ? 1 : 0.9, volume: i >= 0 ? 0.6 : 1 });
     this._markSel();
+    // a chip picked with a number key (or half scrolled out) slides fully into view
+    const c = i >= 0 && this.pouchList.children[i], l = this.pouchList;
+    if (c) {
+      const lr = l.getBoundingClientRect(), cr = c.getBoundingClientRect(), pad = 10;
+      if (cr.left < lr.left + pad) l.scrollLeft -= lr.left + pad - cr.left;
+      else if (cr.right > lr.right - pad) l.scrollLeft += cr.right - (lr.right - pad);
+    }
     this.api.onSelect?.(i);
   }
 
@@ -262,19 +310,41 @@ export class UI {
     const known = !!this.g.s.book[speciesId(e.g)];
     const g = e.g;
     const sell = Math.max(1, Math.round(flowerValue(g) * 0.5));
+    const pd = patternDesc(g);
+    const variant = g.pattern ? `<span class="variant">${patternBadge(g, 'pat-i')}${pd[0].toUpperCase() + pd.slice(1)}</span>` : '';
     this.api.sound('button');
     this.showCard({
       kicker: known ? '' : 'Mystery seed',
       hero: known ? flowerSVG(g, { size: 120 }) : seedSVG(g, 120),
       title: known ? flowerName(g) : 'Unknown hybrid',
-      desc: known ? `${stars(rarity(g))}<br>Worth ${fmt(this.g.sellValue(g))} coins · grows in ${fmtTime(this.g.plantDuration(g))}` : 'Plant it to discover what it becomes!',
+      desc: known ? `${variant}${stars(rarity(g))}Worth ${fmt(this.g.sellValue(g))} coins · grows in ${fmtTime(this.g.plantDuration(g))}` : `${variant}Plant it to discover what it becomes!`,
       buttons: [
         { label: 'Plant', cls: '', act: () => this.selectSeed(i) },
-        { label: `Sell 1 · ${fmt(sell)}`, cls: 'plain', act: () => this.api.sellSeed(i, false) },
-        ...(e.n > 1 ? [{ label: `Sell all · ${fmt(sell * e.n)}`, cls: 'plain', act: () => this.api.sellSeed(i, true) }] : []),
+        { label: `Sell 1 · ${icon('coin')}${fmt(sell)}`, cls: 'plain', act: () => this._sellSeed(i, false) },
+        ...(e.n > 1 ? [{ label: `Sell all · ${icon('coin')}${fmt(sell * e.n)}`, cls: 'plain', act: () => this._sellSeed(i, true) }] : []),
       ],
       now: true,
     });
+  }
+
+  // selling removes entries from the pouch, so keep the selection on the same seed (or clear it if it's gone)
+  _sellSeed(i, all) {
+    const s = this.g.s, keep = s.pouch[this.sel];
+    this.api.sellSeed(i, all);
+    const k = keep ? s.pouch.indexOf(keep) : -1;
+    if (k !== this.sel) { this.sel = k; this._markSel(); this.api.onSelect?.(k); }
+  }
+
+  // no room for another kind of seed: say how to make room, and point at the pouch
+  pouchFull() {
+    // one toast per swipe across several bubbles, but the pouch nudges every time
+    const now = performance.now();
+    if (!(now - this._fullAt < 2500)) {
+      this._fullAt = now;
+      const how = matchMedia('(pointer: coarse)').matches ? 'press and hold' : 'right-click';
+      this.toast(`${icon('up_pouch')}<span>Pouch full! Plant seeds, or ${how} a seed to sell it</span>`, 'warn', 3.4);
+    }
+    this.pouchEl.classList.remove('nudge'); void this.pouchEl.offsetWidth; this.pouchEl.classList.add('nudge');
   }
 
   // ------------------------------------------------------------------------------------------ orders
@@ -287,12 +357,13 @@ export class UI {
     s.orders.forEach((o, k) => { if (o) list.push([k, o]); });
     for (const [k, o] of list) {
       const v = o.special ? { id: 'queen', name: 'Queen Bee', color: '#ffc928' } : VISITORS[o.visitor];
-      const reqG = { c1: o.req.c1 ?? 3, c2: null, shape: o.req.shape ?? 0, pattern: o.req.pattern ?? 0, mut: o.req.mut ?? 0 };
+      // a patterned request needs a second colour, or the pattern is painted in the petal colour and can't be seen
+      const reqG = { c1: o.req.c1 ?? 3, c2: o.req.pattern ? secondColor(o.req.c1 ?? 3) : null, shape: o.req.shape ?? 0, pattern: o.req.pattern ?? 0, mut: o.req.mut ?? 0 };
       const generic = o.req.c1 == null;
       const card = el('div', 'order hit' + (o.special ? ' special' : ''),
         `<div class="who">${visitorSVG(v.id, v.color, 40)}</div>
          <div class="want"><b>${o.special ? '★ ' : ''}${orderText(o.req)}</b><small>${icon('coin')} ${fmt(o.reward)}</small></div>
-         <div class="need">${generic && o.req.shape == null ? rainbowQ(o.req) : flowerSVG(reqG, { size: 36 })}${o.qty > 1 ? `<span class="n">${o.got}/${o.qty}</span>` : ''}</div>
+         <div class="need">${generic && o.req.shape == null ? rainbowQ(o.req) : flowerSVG(reqG, { size: 36 })}${o.req.pattern ? patternBadge(generic ? { c1: 3, c2: 7, pattern: o.req.pattern } : reqG) : ''}${o.qty > 1 ? `<span class="n">${o.got}/${o.qty}</span>` : ''}</div>
          ${o.special ? '' : '<div class="ago"><i></i></div>'}`);
       card.dataset.k = k;
       card.onclick = () => this.orderDetails(k, o, v);
@@ -357,26 +428,34 @@ export class UI {
         this.plotTags.set(i, t);
       }
       const w = g.pos[i], pp = view.project(w.x, 0.25, w.z);
-      const tl = `translate(${pp.x.toFixed(1)}px, ${pp.y.toFixed(1)}px) translate(-50%, -50%)`;
-      if (t._tl !== tl) { t._tl = tl; t.style.transform = tl; }
       // affordable: a green "+ price" button; otherwise just a small lock (the price shows on tap / hover)
       const afford = g.s.coins >= cost;
       const html = i === lead ? `${afford ? icon('plus', 14) : icon('lock')}${icon('coin')}<span class="num">${fmt(cost)}</span>` : afford ? icon('plus', 16) : icon('lock');
       t.classList.toggle('lead', i === lead);
-      if (t._html !== html) { t._html = html; t.innerHTML = html; }
+      if (t._html !== html) { t._html = html; t.innerHTML = html; t._w = 0; }
       t.title = `New plot: ${fmt(cost)} coins`;
       t.classList.toggle('afford', afford);
       t.classList.toggle('poor', !afford);
+      // a plot at the screen edge keeps its price tag fully on screen (width measured once per content change)
+      const hw = (t._w ||= t.offsetWidth) / 2 + 6, W = innerWidth;
+      const x = pp.x >= 0 && pp.x <= W ? Math.max(hw, Math.min(W - hw, pp.x)) : pp.x;
+      const tl = `translate(${x.toFixed(1)}px, ${pp.y.toFixed(1)}px) translate(-50%, -50%)`;
+      if (t._tl !== tl) { t._tl = tl; t.style.transform = tl; }
     });
     for (const [i, t] of this.plotTags) if (!seen.has(i)) { t.remove(); this.plotTags.delete(i); }
   }
 
   hoverInfo(x, y, html) {
-    if (!this.hoverEl) { this.hoverEl = el('div', 'hover-tip'); this.labels.appendChild(this.hoverEl); }
+    // in the fly-up layer, above the HUD chips and orders (the world-label layer sits under them)
+    if (!this.hoverEl) { this.hoverEl = el('div', 'hover-tip'); this.fly.appendChild(this.hoverEl); }
     if (!html) { this.hoverEl.style.display = 'none'; return; }
-    if (this._hoverHtml !== html) { this._hoverHtml = html; this.hoverEl.innerHTML = html; }
+    if (this._hoverHtml !== html) { this._hoverHtml = html; this.hoverEl.innerHTML = html; this._hoverWH = null; }
     this.hoverEl.style.display = '';
-    this.hoverEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, calc(-100% - 22px))`;
+    // stay on screen: slide in from the side edges, drop below the pointer near the top (size measured per text)
+    const [w, h] = (this._hoverWH ||= [this.hoverEl.offsetWidth, this.hoverEl.offsetHeight]);
+    const below = y - h - 28 < 4;
+    const cx = Math.max(w / 2 + 6, Math.min(innerWidth - w / 2 - 6, x));
+    this.hoverEl.style.transform = `translate(${Math.round(cx)}px, ${Math.round(y)}px) translate(-50%, ${below ? '26px' : 'calc(-100% - 22px)'})`;
   }
 
   floatText(x, y, text, cls = '') {
@@ -460,6 +539,10 @@ export class UI {
   dragGhost(html) { const d = el('div', 'drag-ghost', html); this.fly.appendChild(d); return d; }
 
   toast(html, kind = '', life = 2.4) {
+    // landscape: keep the column clear of the chips on the left and the orders on the right (it stays centred)
+    const W = innerWidth, s = this.subEl.getBoundingClientRect(), o = this.ordersEl.getBoundingClientRect();
+    const side = W / innerHeight < 0.8 ? 0 : Math.max(s.width ? s.right : 0, o.width ? W - o.left : 0);
+    this.toasts.style.setProperty('--side', side ? `${Math.round(side + 8)}px` : '');
     const t = el('div', `toast ${kind}`, html);
     t.style.setProperty('--life', `${life}s`);
     this.toasts.appendChild(t);
@@ -490,8 +573,8 @@ export class UI {
       `${c.tag ? `<div class="tag">${c.tag}</div>` : ''}${c.kicker ? `<div class="kicker display">${c.kicker}</div>` : ''}
        ${c.hero ? `<div class="hero">${c.hero}</div>` : ''}
        ${c.title ? `<div class="title">${c.title}</div>` : ''}${c.desc ? `<div class="desc">${c.desc}</div>` : ''}
-       ${c.list ? `<div class="list">${c.list.map((x) => `<div>${x}</div>`).join('')}</div>` : ''}
-       ${c.reward ? `<div class="reward">${c.reward}</div>` : ''}<div class="btns" style="display:flex;gap:.5em;justify-content:center;flex-wrap:wrap"></div>`);
+       ${c.list ? `<div class="list">${c.list.map(listItem).join('')}</div>` : ''}
+       ${c.reward ? `<div class="reward">${c.reward}</div>` : ''}<div class="btns"></div>`);
     const btns = box.querySelector('.btns');
     const buttons = c.buttons || [{ label: 'Nice!', cls: '' }];
     for (const b of buttons) {
@@ -584,8 +667,9 @@ export class UI {
         for (const key in UPGRADES) {
           const u = UPGRADES[key], lv = s.upgrades[key] || 0, locked = s.level < u.unlock, maxed = lv >= u.max;
           const cost = upgradeCost(key, lv);
+          const desc = key === 'pouch' ? (maxed ? `Holds ${g.pouchCap()} seed kinds` : `${u.desc} · holds ${g.pouchCap()} now`) : u.desc;
           const r = el('div', 'row' + (locked ? ' locked' : ''),
-            `<div class="art">${icon('up_' + key, 34)}</div><div class="info"><b>${u.name} ${maxed ? '· MAX' : `· ${lv}/${u.max}`}</b><small>${locked ? `Unlocks at gardener level ${u.unlock}` : u.desc}</small>
+            `<div class="art">${icon('up_' + key, 34)}</div><div class="info"><b>${u.name} ${maxed ? '· MAX' : `· ${lv}/${u.max}`}</b><small>${locked ? `Unlocks at gardener level ${u.unlock}` : nbsp(desc)}</small>
              <div class="pips">${Array.from({ length: u.max }, (_, j) => `<i class="${j < lv ? 'on' : ''}"></i>`).join('')}</div></div>`);
           if (!locked && !maxed) {
             const b = el('button', `btn ${s.coins >= cost ? '' : 'plain disabled'} small`, `${icon('coin')} ${fmt(cost)}`);
@@ -602,7 +686,7 @@ export class UI {
         const grid = el('div', 'grid');
         for (const d of DECOR) {
           const owned = !!s.decor[d.id];
-          const c = el('div', 'card' + (owned ? ' sold' : ''), `<div class="art">${decorIcon(d.id, 60)}</div><div class="name">${d.name}</div><div class="sub">${d.text}</div>`);
+          const c = el('div', 'card' + (owned ? ' sold' : ''), `<div class="art">${decorIcon(d.id, 60)}</div><div class="name">${d.name}</div><div class="sub">${nbsp(d.text)}</div>`);
           const b = el('button', `btn ${owned ? 'plain disabled' : s.coins >= d.cost ? 'honey' : 'plain disabled'} small`, owned ? `${icon('check')} Placed` : `${icon('coin')} ${fmt(d.cost)}`);
           b.onclick = () => { if (this.api.buyDecor(d.id)) this.refreshPanel(); };
           c.appendChild(b);
@@ -628,8 +712,9 @@ export class UI {
         body.appendChild(top);
         const grid = el('div', 'book-grid');
         grid.appendChild(el('div', ''));
-        SHAPES.forEach((sh) => grid.appendChild(el('div', 'hdr', sh.name)));
-        const note = el('div', 'book-note', 'Tap a flower to see how to grow it.');
+        SHAPES.forEach((sh) => grid.appendChild(el('div', 'hdr', sh.name.replace(/^(Blos|Pin)/, '$1&shy;'))));
+        // the note lives in the footer, which stays in view however far the grid is scrolled
+        const note = el('div', 'book-note', 'Tap a flower to see how to grow it. Complete a row or column for a big reward!');
         COLORS.forEach((c, ci) => {
           const dot = el('div', 'clr'); dot.style.background = c.hex; dot.title = c.name;
           grid.appendChild(dot);
@@ -642,17 +727,17 @@ export class UI {
               if (e) {
                 const pats = PATTERNS.map((p, pi) => (e.pat & (1 << pi) ? p.name : null)).filter(Boolean).join(', ');
                 const muts = MUTATIONS.map((m, mi) => (e.mut & (1 << mi) ? m.name : null)).filter(Boolean).join(', ');
-                note.innerHTML = `<b>${speciesName(id)}</b> · grown ${e.n}× · patterns: ${pats || 'Plain'}${muts ? ` · mutations: ${muts}` : ''}`;
+                note.innerHTML = `<span><b>${speciesName(id)}</b> · grown ${e.n}× · patterns: ${pats || 'Plain'}${muts ? ` · mutations: ${muts}` : ''}</span>`;
               } else {
-                note.innerHTML = `<b>${speciesName(id)}</b> — colour: ${colorRecipe(ci)} · shape: ${shapeRecipe(si)}`;
+                note.innerHTML = `<span><b>${speciesName(id)}</b> — colour: ${colorRecipe(ci)} · shape: ${shapeRecipe(si)}</span>`;
               }
             };
             grid.appendChild(cell);
           });
         });
         body.appendChild(grid);
-        body.appendChild(note);
-        foot.textContent = 'Bees mix the colours and shapes of neighbouring blooms. Complete a row or column for a big reward!';
+        foot.innerHTML = '';
+        foot.appendChild(note);
       } else {
         const rows = el('div', 'rows');
         const list = ACHIEVEMENTS.map((a) => ({ a, v: g.statValue(a.stat), done: !!s.ach[a.id] }));
@@ -661,7 +746,7 @@ export class UI {
           rows.appendChild(el('div', 'row' + (done ? ' done' : ''),
             `<div class="art">${icon(done ? 'trophy' : GOAL_ICON[a.stat] || 'target', 30)}</div><div class="info"><b>${a.name}</b><small>${a.text}</small>
              ${done ? '' : `<div class="prog"><i style="width:${Math.min(100, (v / a.goal) * 100)}%"></i></div>`}</div>
-             <div style="font-weight:700;font-size:.85em;display:flex;align-items:center;gap:.2em;white-space:nowrap">${done ? icon('check', 20) : `${icon('coin', 18)}${fmt(a.reward)}`}</div>`));
+             <div style="font-weight:700;font-size:max(11px,.85em);display:flex;align-items:center;gap:.2em;white-space:nowrap">${done ? icon('check', 20) : `${icon('coin', 18)}${fmt(a.reward)}`}</div>`));
         }
         body.appendChild(rows);
         const done = list.filter((x) => x.done).length;
@@ -700,7 +785,7 @@ export class UI {
       how.appendChild(hb);
       body.appendChild(how);
       const stats = this.g.s.stats;
-      body.appendChild(el('div', 'set-row', `<span style="color:var(--ink2);font-size:.85em">Blooms harvested ${fmt(stats.harvests)} · seeds ${fmt(stats.seeds)} · orders ${fmt(stats.orders)} · played ${fmtTime(stats.play)}</span>`));
+      body.appendChild(el('div', 'set-row', `<span style="color:var(--ink2);font-size:max(11px,.85em)">Blooms harvested ${fmt(stats.harvests)} · seeds ${fmt(stats.seeds)} · orders ${fmt(stats.orders)} · played ${fmtTime(stats.play)}</span>`));
       const reset = el('div', 'set-row', '<span style="color:var(--ink2)">Start a new garden</span>');
       const rb = el('button', 'btn small rose', 'Reset');
       rb.onclick = () => {
@@ -829,6 +914,30 @@ const ease01 = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
 const GOAL_ICON = { discoveries: 'book', harvests: 'basket', seeds: 'seed', orders: 'gift', plots: 'shovel', level: 'star', mutations: 'rainbow', decor: 'up_market' };
 
 function keyOf(g) { return `${g.c1}.${g.c2}.${g.shape}.${g.pattern}`; }
+
+// the pattern in its second colour, e.g. "white stripes"; variantName adds it to the flower's name so two
+// variants that share a name (a white-striped and a pink-striped Purple Blossom) can be told apart
+const PATTERN_PART = ['', 'centre', 'stripes', 'spots', 'tips'];
+function patternDesc(g) { return g.pattern ? `${COLORS[g.c2 ?? g.c1].name.toLowerCase()} ${PATTERN_PART[g.pattern]}` : ''; }
+function variantName(g) { return g.pattern ? `${flowerName(g)} · ${patternDesc(g)}` : flowerName(g); }
+// card list row: the leading icon, then all of the text in one span (a flex row would otherwise split
+// "Discover all <b>128 species</b> for your Flower Book" into three side-by-side columns)
+function listItem(x) {
+  const m = x.match(/^\s*(<img\b[^>]*>|<svg\b[\s\S]*?<\/svg>)\s*([\s\S]*)$/);
+  return m ? `<div>${m[1]}<span>${m[2]}</span></div>` : `<div><span>${x}</span></div>`;
+}
+// A long press opens a card whose scrim now lies under the finger; the click some browsers send on release must
+// not land on it (it would close the card at once). The next pointerdown ends the guard, so real taps get through.
+function swallowNextClick() {
+  const swallow = (e) => { e.stopPropagation(); e.preventDefault(); done(); };
+  const done = () => { removeEventListener('click', swallow, true); removeEventListener('pointerdown', done, true); };
+  addEventListener('click', swallow, true);
+  addEventListener('pointerdown', done, true);
+}
+// keep "20 %" together when the line wraps
+const nbsp = (t) => t.replace(/ %/g, '\u00a0%');
+// stack counts stay short enough to sit under a chip
+function stackCount(n) { return n < 1000 ? String(n) : n < 1e4 ? `${(n / 1e3).toFixed(1).replace(/\.0$/, '')}K` : fmt(n); }
 
 function rainbowQ(req) {
   if (req.mut) return `<div style="width:2.2em;height:2.2em;display:grid;place-items:center">${icon({ 1: 'rain', 2: 'night', 3: 'golden', 4: 'rainbow', 5: 'star' }[req.mut] || 'star', 30)}</div>`;

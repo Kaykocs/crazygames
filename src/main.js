@@ -308,7 +308,7 @@ class Game {
       case 'sellSeed': audio.play('coin'); break;
       case 'pouchFull':
         audio.play('invalid');
-        ui.toast(`Seed pouch is full — plant or sell some seeds`, 'warn');
+        ui.pouchFull();
         break;
       case 'order:new': ui.dirty.orders = true; audio.play('tutStep', { volume: 0.7 }); break;
       case 'order:leave': ui.dirty.orders = true; break;
@@ -402,7 +402,7 @@ class Game {
       const found = [...q.found, g], coins = q.coins + p.coins;
       return {
         found, coins, tag: '', kicker: `${found.length} new species!`,
-        hero: `<div style="display:flex;flex-wrap:wrap;gap:.2em;justify-content:center;align-items:center;width:100%;height:100%">${found.slice(0, 6).map((f) => flowerSVG({ ...f, mut: 0 }, { size: found.length > 4 ? 60 : 76 })).join('')}</div>`,
+        hero: `<div class="bunch" style="display:flex;flex-wrap:wrap;gap:.2em;justify-content:center;align-items:center;width:100%;height:100%">${found.slice(0, 6).map((f) => flowerSVG({ ...f, mut: 0 }, { size: found.length > 4 ? 60 : 76 })).join('')}</div>`,
         title: found.map((f) => flowerName(f, { withMut: false })).slice(0, 4).join(', ') + (found.length > 4 ? '…' : ''),
         desc: `Added to your Flower Book (${this.garden.discoveredCount()}/128)`, reward: `${icon('coin')} +${fmt(coins)}`,
       };
@@ -1052,10 +1052,11 @@ class Game {
     if (ui.busy || view.drag) { ui.hoverInfo(0, 0, null); return; }
     const i = view.pickPlot(p.x, p.y);
     view.hoverPlot = i;
-    const seedHit = view.pickSeed(p.x, p.y) != null;
+    const seedId = view.pickSeed(p.x, p.y), seedHit = seedId != null;
     const cur = seedHit || (i >= 0 && (g.plots[i].owned || g.canBuyPlot(i))) ? 'pointer' : 'grab';
     if (this._cursor !== cur) { this._cursor = cur; cv.style.cursor = cur; }
-    ui.hoverInfo(p.x, p.y, g.s.tutorial < 99 ? null : seedHit ? `${icon('seed', 18)} New seed — click to collect` : this._plotInfo(i));
+    const fits = !seedHit || g.canAccept(g.s.seeds.find((s) => s.id === seedId)?.g ?? {});
+    ui.hoverInfo(p.x, p.y, g.s.tutorial < 99 ? null : seedHit ? (fits ? `${icon('seed', 18)} New seed — click to collect` : `${icon('up_pouch', 18)} Pouch full — plant or sell seeds first`) : this._plotInfo(i));
   }
 
   _frame(dt) {
