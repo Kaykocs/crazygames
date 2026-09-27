@@ -237,6 +237,9 @@ img.flower-ico, img.ico { display: block; object-fit: contain; -webkit-user-drag
 #ui:has(.modal-layer > .scrim) .toasts { top: calc(0.55em + var(--safe-t)); left: calc(0.75em + var(--safe-l)); right: calc(0.75em + var(--safe-r)); }
 .scrim { position: absolute; inset: 0; background: rgba(40, 26, 18, 0.45); backdrop-filter: blur(3px); animation: fade .25s both; pointer-events: auto; }
 @keyframes fade { from { opacity: 0; } }
+/* fades out with its panel (an inline opacity would not: the filled-in open animation keeps overriding it) */
+.scrim.leaving { animation: scrim-out .2s linear forwards; pointer-events: none; }
+@keyframes scrim-out { from { opacity: 1; } to { opacity: 0; } }
 .panel {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: auto;
   width: min(34em, calc(100vw - 1.2em - var(--safe-l) - var(--safe-r))); max-height: calc(100% - 2.4em - var(--safe-t) - var(--safe-b));

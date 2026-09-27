@@ -706,12 +706,18 @@ export class UI {
     if (!o) return;
     clearTimeout(o.timer);
     this.cardOpen = null;
-    o.box.classList.add('leaving');
-    o.scrim.style.transition = 'opacity .2s'; o.scrim.style.opacity = '0';
-    setTimeout(() => { o.box.remove(); o.scrim.remove(); }, immediate ? 0 : 220);
+    this._dismiss(o, immediate);
     setTimeout(() => this._nextCard(), immediate ? 0 : 260);
   }
   get busy() { return !!(this.cardOpen || this.panel); }
+  // a card or panel and its dimmed backdrop fade out together, and leave once the exit animation has played
+  _dismiss(o, immediate) {
+    const gone = () => { o.box.remove(); o.scrim.remove(); };
+    if (immediate) { gone(); return; }
+    o.box.classList.add('leaving'); o.scrim.classList.add('leaving');
+    o.box.addEventListener('animationend', (e) => { if (e.target === o.box) gone(); });
+    setTimeout(gone, 600);
+  }
 
   // ------------------------------------------------------------------------------------------ panels
   _openPanel(title, tabs, render, onTab) {
@@ -742,9 +748,7 @@ export class UI {
     const p = this.panel;
     if (!p) return;
     this.panel = null;
-    p.box.classList.add('leaving');
-    p.scrim.style.transition = 'opacity .2s'; p.scrim.style.opacity = '0';
-    setTimeout(() => { p.box.remove(); p.scrim.remove(); }, immediate ? 0 : 220);
+    this._dismiss(p, immediate);
     this.api.onPanel?.(false);
     if (!immediate) setTimeout(() => this._nextCard(), 250);
   }
