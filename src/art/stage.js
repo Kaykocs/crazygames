@@ -1,6 +1,7 @@
 // Stage: the 2D canvas, device-pixel handling, quality tiers, the 3/4-view camera, the tiled ground layer and
 // the frame composition (ground → ground effects → depth-sorted objects → particles → light & weather).
 import { SQ, HY } from './view3q.js';
+import { makeCanvas, warmingSprites, settle } from './paint.js';
 
 export const QUALITY = {
   low: { name: 'low', dpr: 1, particles: 0.5, ambient: 0.5, detail: 0.6, glow: false },
@@ -61,7 +62,7 @@ class Ground {
     const X1 = X0 + (TILE + PAD * 2) / res, Y1 = Y0 + (TILE + PAD * 2) / res;
     g.fillStyle = '#7cc458'; g.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
     this.s.paintGround?.(g, X0, Y0, X1, Y1, 1 / res);
-    return { c, used: this.frame };
+    return { c: settle(c), used: this.frame };
   }
   _overview() {
     const o = OVERVIEW;
@@ -235,6 +236,24 @@ export class Stage {
   view(m = 0) {
     const hw = this.vw / 2 / this.cam.ppu, hh = this.vh / 2 / this.cam.ppu;
     return { X0: this.cam.x - hw - m, X1: this.cam.x + hw + m, Y0: this.cam.y - hh - m, Y1: this.cam.y + hh + m };
+  }
+
+  // Scenery that has not been on screen yet gets small stand-in sprites, nearest first, a few milliseconds per
+  // frame: zooming out or panning then never has to paint a dozen new trees within one frame.
+  warm(ms, time) {
+    if (this._warmed || !ms || this.zooming) return;
+    if (!this._warmQ) {
+      const c = this.cam, all = [];
+      for (const l of this.layers) if (l.warmItems) all.push(...l.warmItems());
+      const d = (p) => (p.x - c.x) ** 2 + (p.z * SQ - c.y) ** 2;
+      this._warmQ = all.sort((a, b) => d(a) - d(b));
+      this._warmCtx = makeCanvas(1, 1).getContext('2d');       // everything drawn into it is clipped away
+    }
+    const q = this._warmQ, t0 = performance.now();
+    warmingSprites(0.6);
+    try { while (q.length && performance.now() - t0 < ms) q.shift().draw(this._warmCtx, this, time); }
+    finally { warmingSprites(0); }
+    if (!q.length) { this._warmed = true; this._warmQ = null; this._warmCtx = null; }
   }
 
   // ------------------------------------------------------------------------------------------ frame

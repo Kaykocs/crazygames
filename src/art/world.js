@@ -516,6 +516,8 @@ export class World {
   }
   particles(ctx, s, time) { this.life.particles(ctx, s, time); }
 
+  // the standing scenery, for the stage to paint ahead of time (Stage.warm)
+  warmItems() { return this.props; }
   collect(list, s) {
     this.life.collect(list, s);
     const v = s.view(5);

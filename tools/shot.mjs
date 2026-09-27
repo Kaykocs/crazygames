@@ -153,11 +153,13 @@ for (const name of only) {
     await shot('quest-hint');
     // the first quest: tap the quest chip for a hint, then buy a plot where the hand points (once the camera settled)
     await page.waitForFunction(() => { const c = __game.stage.cam, t = __game.stage.target; return Math.abs(c.x - t.x) < 0.01 && Math.abs(c.y - t.y) < 0.01 && Math.abs(c.ppu - t.ppu) < 0.3; }, null, { timeout: 60000 }).catch(() => {});
-    // a level-up card may still be open (it closes like a player would close it)
+    // a level-up card may still be open (it closes like a player would close it); closing it can unlock the
+    // visitors, whose column the camera then makes room for: wait for it to settle again
     for (let k = 0; k < 8 && (await page.evaluate(() => !!document.querySelector('.card-pop:not(.leaving)'))); k++) {
       await page.locator('.card-pop:not(.leaving) .btn').first().click().catch(() => {});
       await page.waitForTimeout(500);
     }
+    await page.waitForFunction(() => { const c = __game.stage.cam, t = __game.stage.target; return Math.abs(c.x - t.x) < 0.01 && Math.abs(c.y - t.y) < 0.01 && Math.abs(c.ppu - t.ppu) < 0.3; }, null, { timeout: 60000 }).catch(() => {});
     const hintNow = () => page.evaluate(() => { const h = __game.hint && __game._hintSpec(__game.hint.kind); return h?.hand?.tap || null; });
     let hint = await hintNow();
     if (!hint) {

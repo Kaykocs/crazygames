@@ -178,25 +178,52 @@ export function poly(ctx, pts, close = true) {
 
 // Sprite cache with a repaint budget: when the zoom changes, sprites at the new resolution are painted a few
 // per frame while the nearest existing one stands in (scaled), so camera moves never hitch.
+// A sprite that has never been painted has no stand-in, so it would be painted on the spot: the stage warms
+// off-screen scenery ahead of time (Stage.warm), which paints small stand-ins (`thumb`) that are kept for good,
+// and a full-size sprite that falls out of use leaves a half-size copy behind as its stand-in.
 const BANKS = [];
+// Browsers record canvas drawing and rasterize it on first use, which would land inside the next frame's render
+// (a big tree: 3 ms+ with software rendering). Taking a snapshot rasterizes it now, inside the paint budget.
+export function settle(c) {
+  if (typeof createImageBitmap === 'function') createImageBitmap(c).then((b) => b.close(), () => {});
+  return c;
+}
+const made = (s) => { if (s?.c) settle(s.c); return s; };
+let warming = 0;
+export function warmingSprites(scale) { warming = scale; }
+function shrink(s, f) {
+  if (!s?.c || s.c.width * s.c.height <= 4096) return s;
+  const c = makeCanvas(s.c.width * f, s.c.height * f);
+  c.getContext('2d').drawImage(s.c, 0, 0, c.width, c.height);
+  return { c, res: s.res * (c.width / s.c.width), w: s.w, h: s.h, ax: s.ax, ay: s.ay };
+}
+// one budget shared by every bank (taking turns at going first); 0 = only the bookkeeping (e.g. mid-zoom)
+let turn = 0;
 export function tickBanks(ms = 5) {
-  const t0 = performance.now();
-  for (const b of BANKS) b.tick(Math.max(0.5, ms - (performance.now() - t0)));
+  const t0 = performance.now(), n = BANKS.length;
+  turn = (turn + 1) % Math.max(1, n);
+  for (let k = 0; k < n; k++) BANKS[(turn + k) % n].tick(ms - (performance.now() - t0));
 }
 export class SpriteBank {
-  constructor() { this.map = new Map(); this.latest = new Map(); this.want = new Map(); this.queue = []; this.queued = new Set(); this.frame = 0; BANKS.push(this); }
+  constructor() { this.map = new Map(); this.latest = new Map(); this.thumb = new Map(); this.want = new Map(); this.queue = []; this.queued = new Set(); this.frame = 0; BANKS.push(this); }
   get(key, res, make) {
     const full = key + '@' + res;
     let e = this.map.get(full);
     if (e) { e.used = this.frame; return e.s; }
-    const alt = this.latest.get(key);
+    const alt = this.latest.get(key) || this.thumb.get(key);
+    if (warming) {                        // warming up off-screen scenery: only sprites never painted get a stand-in
+      if (alt) return alt.s;
+      const t = { s: made(make(Math.max(4, Math.round(res * warming)))), used: this.frame };
+      this.thumb.set(key, t);
+      return t.s;
+    }
     if (alt) {
       this.want.set(key, res);
       if (!this.queued.has(full)) { this.queued.add(full); this.queue.push({ key, res, make, full }); }
       alt.used = this.frame;
       return alt.s;
     }
-    const s = make(res);
+    const s = made(make(res));
     e = { s, used: this.frame, res };
     this.map.set(full, e); this.latest.set(key, e);
     return s;
@@ -205,15 +232,20 @@ export class SpriteBank {
   tick(ms = 4) {
     this.frame++;
     const t0 = performance.now();
-    while (this.queue.length && performance.now() - t0 < ms) {
+    while (this.queue.length && ms > 0 && performance.now() - t0 < ms) {
       const q = this.queue.shift();
       this.queued.delete(q.full);
       if (this.map.has(q.full) || this.want.get(q.key) !== q.res) continue;     // painted already, or asked for another size since
-      const e = { s: q.make(q.res), used: this.frame, res: q.res };
+      const e = { s: made(q.make(q.res)), used: this.frame, res: q.res };
       this.map.set(q.full, e); this.latest.set(q.key, e);
     }
     if (this.frame % 240 === 0) {
-      for (const [k, e] of this.map) if (this.frame - e.used > 600) { this.map.delete(k); const key = k.slice(0, k.lastIndexOf('@')); if (this.latest.get(key) === e) this.latest.delete(key); }
+      for (const [k, e] of this.map) {
+        if (this.frame - e.used <= 600) continue;
+        this.map.delete(k);
+        const key = k.slice(0, k.lastIndexOf('@'));
+        if (this.latest.get(key) === e) { this.latest.delete(key); if (!this.thumb.has(key)) this.thumb.set(key, { s: shrink(e.s, 0.5), used: this.frame }); }
+      }
     }
   }
   pending() { return this.queue.length; }

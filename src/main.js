@@ -1083,7 +1083,8 @@ class Game {
     this.world.update(dt, this.time);
     this.fx.update(dt, this.view.cam);
     this.stage.updateCamera(dt);
-    tickBanks(this.frozen ? 50 : this.stage.zooming ? 0.3 : 5);      // repaint sprites once a zoom settles
+    tickBanks(this.frozen ? 50 : this.stage.zooming ? 0 : 5);        // repaint sprites once a zoom settles
+    this.stage.warm(this.frozen ? 0 : 2.5, this.time);                 // paint stand-ins for scenery not seen yet
     this.stage.render(this.time);
     this._goldenTick(dt);
     this.ui.update(dt);
