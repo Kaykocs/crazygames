@@ -515,6 +515,7 @@ for (const name of only) {
   const CUT = { cross: [0, 3.3], discover: [0, 4.8], combo: [0, 2.9], golden: [0, 2.5], night: [0, 2.0], decorate: [fmt.touch ? 0.5 : 1.1, 4.0], finale: [0, 2.0] };
   const clips = Object.keys(CUT).map((shot) => ({ shot, file: `build/video-clips/${name}-${shot}.mp4` })).filter((c) => existsSync(c.file))
     .map((c) => { const [ss, len] = CUT[c.shot]; return { file: c.file, ss, dur: Math.min(clipDur(c.file) - ss, len) }; });
+  if (clips.length < 2) { console.log(`[${name}] only ${clips.length} clip(s) in build/video-clips: record the other shots, then --cut`); await context.close(); continue; }
   const total = clips.reduce((s, c) => s + c.dur, 0) - XF * (clips.length - 1);
   const inputs = clips.flatMap((c) => ['-ss', c.ss.toFixed(3), '-t', c.dur.toFixed(3), '-i', c.file]);
   let filter = '', last = '[0:v]', off = 0;

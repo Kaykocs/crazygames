@@ -19,7 +19,9 @@ export function detectQuality(info) {
   return 'high';
 }
 
-const quantRes = (r) => Math.max(8, Math.round(r / 6) * 6);
+// Sprite resolutions come in quarter-octave steps (…, 64, 76, 91, 108, 128, …), rounded up so a sprite is only
+// ever drawn slightly smaller than painted: zooming crosses a new step every ~19 % instead of every few pixels.
+const quantRes = (r) => Math.max(8, Math.round(Math.pow(2, Math.ceil(Math.log2(Math.max(1, r)) * 4 - 1e-9) / 4)));
 
 // ------------------------------------------------------------------------------------------ tiled ground
 // The ground (lawn, paths, pond...) is static art, so it is painted once into 256 px tiles per zoom level and
@@ -87,6 +89,7 @@ class Ground {
   // paint missing tiles nearest the middle of the screen first, within the time budget
   tick() {
     if (!this.want.length) return;
+    if (this.s.zooming) { this.want.length = 0; return; }       // mid-zoom: the previous level stands in until it settles
     const t0 = performance.now();
     const c = this.s.cam;
     this.want.sort((a, b) => (a.cx - c.x) ** 2 + (a.cy - c.y) ** 2 - ((b.cx - c.x) ** 2 + (b.cy - c.y) ** 2));
@@ -160,6 +163,8 @@ export class Stage {
     const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
     return Math.max(0.75, Math.min(window.devicePixelRatio || 1, this.q.dpr, Math.sqrt(MAX_PIXELS / (w * h))));
   }
+  // true while the player is zooming (sprite and ground repaints wait for the zoom to settle)
+  get zooming() { return performance.now() - (this.zoomAt || -1e9) < 180; }
   get width() { return this.vw; }
   get height() { return this.vh; }
   // device pixels per world unit at the camera's target zoom (sprites are painted for this)
@@ -203,6 +208,7 @@ export class Stage {
 
   // ------------------------------------------------------------------------------------------ camera
   setTarget(x, y, ppu, snap = false) {
+    if (Math.abs(ppu - this.target.ppu) > 1e-3) this.zoomAt = performance.now();
     this.target.x = x; this.target.y = y; this.target.ppu = ppu;
     if (snap) { this.cam.x = x; this.cam.y = y; this.cam.ppu = ppu; }
   }

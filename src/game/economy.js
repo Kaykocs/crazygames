@@ -105,7 +105,8 @@ export const ORDER_TTL = 300;   // seconds before an unfilled visitor moves on
 
 // Build an order the player can reasonably reach from what they have discovered (book = Set of species ids).
 export function makeOrder(level, book, rnd, weatherKinds, recent = []) {
-  const known = [...book];
+  // an empty Flower Book (e.g. the tutorial was skipped) asks for the shop's basic blossoms
+  const known = book.size ? [...book] : BASICS.map((c) => c * 8 + S.BLOSSOM);
   const knownColors = [...new Set(known.map((id) => Math.floor(id / 8)))];
   const knownShapes = [...new Set(known.map((id) => id % 8))];
   // colours one cross away from what the player already has

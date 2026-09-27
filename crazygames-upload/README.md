@@ -49,8 +49,8 @@ Grow: tap or click a growing flower to make it grow faster
 Cross: drag from one flower onto another
 Harvest: tap or click a bloom; quick taps in a row make a combo
 Collect seeds: tap the seed bubbles
-Look around: drag the lawn; mouse wheel or pinch to zoom
-Keyboard: 1-9 pick seeds, W watering can, D shovel, S shop, B Flower Book, Esc close
+Look around: drag the lawn; mouse wheel or pinch to zoom; the target button (or H) brings you back to the garden
+Keyboard: 1-9 pick seeds, W watering can, D shovel, S shop, B Flower Book, H back to the garden, Esc close
 ```
 
 ### Tips / FAQ (if the form or page has room for it)

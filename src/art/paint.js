@@ -30,19 +30,22 @@ export const sprite = (w, h, ax, ay, res, paint) => new Sprite(w, h, ax, ay, res
 // Draw a sprite with its anchor at screen (x, y). `ppu` = CSS pixels per world unit on screen.
 // `skew` leans the sprite about its anchor (wind): points above the anchor shift sideways, the base stays put.
 export function drawSprite(ctx, s, x, y, ppu, sx = 1, sy = 1, rot = 0, alpha = 1, skew = 0) {
-  if (!s) return;
+  if (!s || !sx || !sy) return;          // nothing to draw (and a zero scale could not be undone)
   const k = ppu / s.res;
   if (alpha !== 1) ctx.globalAlpha = alpha;
   if (rot === 0 && sx === sy && sx === 1 && skew === 0) {
     ctx.drawImage(s.c, x - s.ax * ppu, y - s.ay * ppu, s.c.width * k, s.c.height * k);
   } else {
-    ctx.save();
+    // transform there and back again instead of save()/restore() (cheaper, and nothing else in the state changes)
     ctx.translate(x, y);
     if (rot) ctx.rotate(rot);
     ctx.scale(sx, sy);
     if (skew) ctx.transform(1, 0, skew, 1, 0, 0);
     ctx.drawImage(s.c, -s.ax * ppu, -s.ay * ppu, s.c.width * k, s.c.height * k);
-    ctx.restore();
+    if (skew) ctx.transform(1, 0, -skew, 1, 0, 0);
+    ctx.scale(1 / sx, 1 / sy);
+    if (rot) ctx.rotate(-rot);
+    ctx.translate(-x, -y);
   }
   if (alpha !== 1) ctx.globalAlpha = 1;
 }
@@ -181,13 +184,14 @@ export function tickBanks(ms = 5) {
   for (const b of BANKS) b.tick(Math.max(0.5, ms - (performance.now() - t0)));
 }
 export class SpriteBank {
-  constructor() { this.map = new Map(); this.latest = new Map(); this.queue = []; this.queued = new Set(); this.frame = 0; BANKS.push(this); }
+  constructor() { this.map = new Map(); this.latest = new Map(); this.want = new Map(); this.queue = []; this.queued = new Set(); this.frame = 0; BANKS.push(this); }
   get(key, res, make) {
     const full = key + '@' + res;
     let e = this.map.get(full);
     if (e) { e.used = this.frame; return e.s; }
     const alt = this.latest.get(key);
     if (alt) {
+      this.want.set(key, res);
       if (!this.queued.has(full)) { this.queued.add(full); this.queue.push({ key, res, make, full }); }
       alt.used = this.frame;
       return alt.s;
@@ -204,7 +208,7 @@ export class SpriteBank {
     while (this.queue.length && performance.now() - t0 < ms) {
       const q = this.queue.shift();
       this.queued.delete(q.full);
-      if (this.map.has(q.full)) continue;
+      if (this.map.has(q.full) || this.want.get(q.key) !== q.res) continue;     // painted already, or asked for another size since
       const e = { s: q.make(q.res), used: this.frame, res: q.res };
       this.map.set(q.full, e); this.latest.set(q.key, e);
     }

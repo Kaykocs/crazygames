@@ -66,7 +66,8 @@ export class FX {
       pulse: o.pulse ?? 0, flip: o.flip ?? 0, ring: o.ring ?? null, seed: this.R() * 10,
     });
   }
-  n(k) { return Math.max(1, Math.round(k * (this.q.particles ?? 1))); }
+  // burst size, trimmed while lots of particles are already alive (spam-tapping stays smooth)
+  n(k) { const L = this.list.length, load = L > 320 ? 0.3 : L > 160 ? 0.6 : 1; return Math.max(1, Math.round(k * (this.q.particles ?? 1) * load)); }
 
   petals(x, y, z, colors, n = 14) {
     const R = this.R;

@@ -160,6 +160,10 @@ export class GardenView {
     const u = this.user, b = this.base;
     u.x = clamp(u.x, -17 - b.x, 17 - b.x); u.y = clamp(u.y, -13 * SQ - b.y, 15 * SQ - b.y);
   }
+  // has the player moved the view away from the garden's own framing?
+  get offCenter() { const u = this.user; return !this.focus && (Math.abs(u.x) + Math.abs(u.y) > 0.6 || Math.abs(u.zoom - 1) > 0.08); }
+  // glide back to the garden's framing
+  recenter() { this.user.x = 0; this.user.y = 0; this.user.zoom = 1; this.focus = null; this._applyCam(); }
   // glide to a world point for a moment (e.g. a new decoration), then come back to the garden
   focusOn(x, z, dur = 2.6) {
     this.user.x = 0; this.user.y = 0; this.user.zoom = 1;
@@ -268,12 +272,8 @@ export class GardenView {
     // the camera drifts back to the garden a few seconds after the player stops looking around
     const u = this.user;
     u.idle += dt;
+    // the view stays where the player put it (the "back to the garden" button recenters it)
     if (this.focus) { this.focus.t += dt; if (this.focus.t >= this.focus.dur) this.focus = null; this._applyCam(); }
-    else if (u.idle > 7 && (Math.abs(u.x) + Math.abs(u.y) > 0.01 || Math.abs(u.zoom - 1) > 0.005)) {
-      const k = 1 - Math.exp(-1.6 * dt);
-      u.x -= u.x * k; u.y -= u.y * k; u.zoom += (1 - u.zoom) * k;
-      this._applyCam();
-    }
     for (let i = 0; i < this.N; i++) this._animPlot(this.pv[i], g.plots[i], dt);
     this._orbs(dt, time);
     this.golden.update(dt, time);
@@ -393,6 +393,8 @@ export class GardenView {
         if (pv.hover > 0.02) drawSprite(ctx, rimSprite(res), X, Y, ppu, 1, 1, 0, pv.hover * 0.9);
       }
     }
+    // growth ring lies on the soil: the plant (and anything in front of the bed) is drawn over it
+    if (plot.owned && pv.ringT > 0 && pv.g) this._growRing(ctx, s, pv, plot.plant);
     // --- plant (squashes and stretches when tapped)
     if (!pv.g || pv.stem < 0.005) return;
     const Ys = s.sy(w.z * SQ - SOIL_Y * HY);
@@ -470,7 +472,6 @@ export class GardenView {
     ctx.lineCap = 'round';
     for (let i = 0; i < this.N; i++) {
       const pv = this.pv[i], pl = g.plots[i].plant;
-      if (pv.ringT > 0 && pv.g) this._growRing(ctx, s, pv, pl);
       if (pv.rest > 0.01 && !this.drag && g.resting(i) > 0) this._restClock(ctx, s, i, pv.rest);
       // a species nobody has seen yet: a little "?" bobs over it until it blooms
       if (pl && pl.stage === 'grow' && pv.stem > 0.05 && !g.s.book[speciesId(pl.g)]) this._mystery(ctx, s, i, pv, time);
@@ -552,20 +553,25 @@ export class GardenView {
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1, y1); ctx.stroke();
     ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
-  // growth progress around the base of a tapped plant
+  // growth progress drawn on the soil around a tapped plant's stem (its leaves and flower are drawn over it)
   _growRing(ctx, s, pv, pl) {
     const w = this.garden.pos[pv.i], ppu = s.cam.ppu;
     const k = pl ? (pl.stage === 'bloom' ? 1 : clamp(pl.t / pl.dur, 0, 1)) : pv.ringK;
     const a = Math.min(1, pv.ringT / 0.45);
-    const cx = s.sx(w.x), cy = s.sy(w.z * SQ - SOIL_Y * HY) + 2;
-    const rx = Math.max(18, 0.6 * ppu), ry = rx * SQ;
-    ctx.globalAlpha = a;
-    ctx.lineWidth = Math.max(5, 0.1 * ppu); ctx.strokeStyle = 'rgba(58,34,14,0.6)';
+    const cx = s.sx(w.x), cy = s.sy(w.z * SQ - SOIL_Y * HY);
+    const rx = Math.max(14, 0.5 * ppu), ry = rx * SQ;
+    const lw = Math.max(2.5, 0.055 * ppu), col = k >= 1 ? '#ffd84a' : '#8fe36a';
+    const a0 = -Math.PI / 2, a1 = a0 + TAU * Math.max(0.02, k);
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = a * 0.4;
+    ctx.lineWidth = lw; ctx.strokeStyle = '#f6e7c4';
     ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU); ctx.stroke();
-    ctx.lineWidth = Math.max(3, 0.065 * ppu); ctx.strokeStyle = k >= 1 ? '#ffe45c' : '#9af06a';
-    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, -Math.PI / 2, -Math.PI / 2 + TAU * Math.max(0.02, k)); ctx.stroke();
-    const e = -Math.PI / 2 + TAU * k;
-    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(cx + Math.cos(e) * rx, cy + Math.sin(e) * ry, Math.max(2.5, 0.05 * ppu), 0, TAU); ctx.fill();
+    ctx.globalAlpha = a * 0.3;
+    ctx.lineWidth = lw * 2.4; ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, a0, a1); ctx.stroke();
+    ctx.globalAlpha = a;
+    ctx.lineWidth = lw; ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, a0, a1); ctx.stroke();
     ctx.globalAlpha = 1;
   }
   // a small clock over a resting bloom (it was just crossed and needs a moment before it can be crossed again)

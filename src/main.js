@@ -247,7 +247,7 @@ class Game {
         if (p.combo > 1) {
           setTimeout(() => ui.floatText(pt.x, pt.y - 46, `Combo ×${p.combo}!`, p.combo >= 4 ? 'combo hot' : 'combo'), 60);
           if ([2, 3, 5, 8, 12].includes(p.combo)) audio.play('combo', { step: Math.min(10, p.combo) });
-          if (p.combo >= 3) this.fx.sparkles(view.headPos(p.i).x, view.headPos(p.i).y, view.headPos(p.i).z, '#ffe45c', 4 + p.combo * 2, 0.6);
+          if (p.combo >= 3) { const h = view.headPos(p.i); this.fx.sparkles(h.x, h.y, h.z, '#ffe45c', Math.min(10, 4 + p.combo * 2), 0.6); }
         }
         break;
       }
@@ -545,6 +545,7 @@ class Game {
       else if (e.code === 'KeyD') ui.setTool(ui.tool === 'dig' ? '' : 'dig');
       else if (e.code === 'KeyB') ui.openBook();
       else if (e.code === 'KeyS') ui.openShop();
+      else if (e.code === 'KeyH' || e.key === 'Home') view.recenter();
     });
     this._tutGate();
     this._pouchDrag();
@@ -1056,7 +1057,8 @@ class Game {
     const cur = seedHit || (i >= 0 && (g.plots[i].owned || g.canBuyPlot(i))) ? 'pointer' : 'grab';
     if (this._cursor !== cur) { this._cursor = cur; cv.style.cursor = cur; }
     const fits = !seedHit || g.canAccept(g.s.seeds.find((s) => s.id === seedId)?.g ?? {});
-    ui.hoverInfo(p.x, p.y, g.s.tutorial < 99 ? null : seedHit ? (fits ? `${icon('seed', 18)} New seed — click to collect` : `${icon('up_pouch', 18)} Pouch full — plant or sell seeds first`) : this._plotInfo(i));
+    const clicking = this.time - (this._lastInput ?? -9) < 0.6;         // no tooltip churn while tapping away
+    ui.hoverInfo(p.x, p.y, g.s.tutorial < 99 || clicking ? null : seedHit ? (fits ? `${icon('seed', 18)} New seed — click to collect` : `${icon('up_pouch', 18)} Pouch full — plant or sell seeds first`) : this._plotInfo(i));
   }
 
   _frame(dt) {
@@ -1068,7 +1070,7 @@ class Game {
     this.world.update(dt, this.time);
     this.fx.update(dt, this.view.cam);
     this.stage.updateCamera(dt);
-    tickBanks(this.frozen ? 50 : 5);
+    tickBanks(this.frozen ? 50 : this.stage.zooming ? 0.3 : 5);      // repaint sprites once a zoom settles
     this.stage.render(this.time);
     this._goldenTick(dt);
     this.ui.update(dt);

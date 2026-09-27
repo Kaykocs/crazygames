@@ -29,8 +29,9 @@ Controls (touch or mouse):
   blooms rest for a few seconds. Bees also cross neighbouring blooms on their own.
 - **Harvest**: tap a bloom. Quick taps in a row make a combo (up to ×2 coins).
 - **Collect**: tap the seed bubbles (they fly into the pouch by themselves after a moment).
-- **Look around**: drag the lawn; pinch or mouse wheel to zoom. The view drifts back to the garden after a few seconds.
-- Keyboard: `1-9` pick seeds, `W` watering can, `D` shovel, `S` shop, `B` book, `Esc` closes panels.
+- **Look around**: drag the lawn; pinch or mouse wheel to zoom. The view stays where you leave it; the target
+  button (or `H`) glides back to the garden.
+- Keyboard: `1-9` pick seeds, `W` watering can, `D` shovel, `S` shop, `B` book, `H` back to the garden, `Esc` closes panels.
 
 New players get a spotlight tutorial (one action at a time, with a pointing hand), then a chain of starter quests.
 Tapping the quest chip shows where to do the current quest.

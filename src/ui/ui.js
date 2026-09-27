@@ -73,7 +73,11 @@ export class UI {
     this.setBtn = el('button', 'round-btn', icon('gear'));
     this.setBtn.setAttribute('aria-label', 'Settings');
     this.setBtn.onclick = () => { this.api.sound('button'); this.openSettings(); };
-    btns.append(this.bookBtn, this.setBtn);
+    this.homeBtn = el('button', 'round-btn home', icon('target'));
+    this.homeBtn.setAttribute('aria-label', 'Back to the garden');
+    this.homeBtn.title = 'Back to the garden';
+    this.homeBtn.onclick = () => { this.api.sound('button'); this.api.view?.recenter(); };
+    btns.append(this.homeBtn, this.bookBtn, this.setBtn);
     top.append(this.coinsEl, lvl, btns);
     // sub chips
     const sub = el('div', 'hud-sub');
@@ -197,6 +201,9 @@ export class UI {
     if (this.dirty.orders) this.renderOrders();
     this._orderAges();
     this._updatePlotTags();
+    // the "back to the garden" button shows while the player has moved the view away
+    const off = !!this.api.view?.offCenter;
+    if (off !== this._homeOn) { this._homeOn = off; this.homeBtn.classList.toggle('show', off); }
     if (this.panel?.tick) this.panel.tick(dt);
   }
 
@@ -423,7 +430,10 @@ export class UI {
       let t = this.plotTags.get(i);
       if (!t) {
         t = el('button', 'plot-tag', '');
-        t.onclick = (ev) => { ev.stopPropagation(); this.api.buyPlot(i, t); };
+        // bought on release: a tap's synthetic click can be re-targeted to the canvas by the browser's touch
+        // adjustment for small targets, so it isn't reliable on phones (click stays for keyboard activation)
+        t.onpointerup = (ev) => { if (ev.button > 0) return; ev.stopPropagation(); this.api.buyPlot(i, t); };
+        t.onclick = (ev) => { ev.stopPropagation(); if (ev.detail === 0) this.api.buyPlot(i, t); };
         this.labels.appendChild(t);
         this.plotTags.set(i, t);
       }
@@ -462,32 +472,51 @@ export class UI {
     const f = el('div', `float-txt ${cls}`, text);
     f.style.left = `${x}px`; f.style.top = `${y}px`;
     this.fly.appendChild(f);
-    setTimeout(() => f.remove(), 1150);
+    const L = (this._floats ||= []);
+    L.push(f);
+    while (L.length > 8) L.shift().remove();             // spam-tapping never piles up text
+    setTimeout(() => { f.remove(); const k = L.indexOf(f); if (k >= 0) L.splice(k, 1); }, 1150);
   }
 
   // coins fly from a screen point into the coin pill, then the counter bumps
   flyCoins(x, y, amount) {
-    const n = Math.max(1, Math.min(8, Math.round(Math.log2(amount + 1))));
-    const tr = this.coinsEl.getBoundingClientRect();
-    const tx = tr.left + 22, ty = tr.top + tr.height / 2;
+    const L = (this._flyers ||= []);
+    if (L.length > 24) { this._bumpCoins(); return; }      // plenty in the air already: the counter just bumps
+    const n = Math.max(1, Math.min(L.length > 10 ? 2 : 6, Math.round(Math.log2(amount + 1))));
+    const now = performance.now();
+    if (!this._coinTo || now - this._coinTo.t > 500) { const r = this.coinsEl.getBoundingClientRect(); this._coinTo = { x: r.left + 22, y: r.top + r.height / 2, t: now }; }
+    this._coinTpl ||= el('div', 'flyer', icon('coin'));
     for (let i = 0; i < n; i++) {
-      const c = el('div', 'flyer', icon('coin'));
+      const c = this._coinTpl.cloneNode(true);
+      c.style.opacity = '0';
       this.fly.appendChild(c);
       const sx = x + (Math.random() - 0.5) * 50, sy = y + (Math.random() - 0.5) * 30;
-      const mx = sx + (Math.random() - 0.5) * 120, my = sy - 60 - Math.random() * 60;
-      const t0 = performance.now() + i * 45, dur = 620 + Math.random() * 180;
-      const step = (now) => {
-        const k = Math.min(1, Math.max(0, (now - t0) / dur));
-        const e = k * k * (3 - 2 * k);
-        const px = (1 - e) * (1 - e) * sx + 2 * (1 - e) * e * mx + e * e * tx;
-        const py = (1 - e) * (1 - e) * sy + 2 * (1 - e) * e * my + e * e * ty;
-        c.style.transform = `translate(${px - 12}px, ${py - 12}px) scale(${1 - 0.3 * e})`;
-        c.style.opacity = k <= 0 ? '0' : '1';
-        if (k < 1) requestAnimationFrame(step);
-        else { c.remove(); this.coinsEl.classList.remove('bump'); void this.coinsEl.offsetWidth; this.coinsEl.classList.add('bump'); if (i === 0) this.api.sound('coin', { pitch: 1 + Math.random() * 0.1 }); }
-      };
-      requestAnimationFrame(step);
+      L.push({ c, sx, sy, mx: sx + (Math.random() - 0.5) * 120, my: sy - 60 - Math.random() * 60, t0: now + i * 45, dur: 620 + Math.random() * 180, first: i === 0 });
     }
+    if (!this._flyRaf) this._flyRaf = requestAnimationFrame((t) => this._flyStep(t));
+  }
+  // every flying coin moves in one loop; landing coins bump the counter (and ring once per frame at most)
+  _flyStep(now) {
+    const L = this._flyers, to = this._coinTo;
+    let j = 0, landed = false, ring = false;
+    for (const f of L) {
+      const k = Math.min(1, Math.max(0, (now - f.t0) / f.dur));
+      if (k >= 1) { f.c.remove(); landed = true; ring ||= f.first; continue; }
+      const e = k * k * (3 - 2 * k), u = 1 - e;
+      const px = u * u * f.sx + 2 * u * e * f.mx + e * e * to.x, py = u * u * f.sy + 2 * u * e * f.my + e * e * to.y;
+      f.c.style.transform = `translate(${(px - 12).toFixed(1)}px, ${(py - 12).toFixed(1)}px) scale(${(1 - 0.3 * e).toFixed(3)})`;
+      if (k > 0 && f.c.style.opacity !== '1') f.c.style.opacity = '1';
+      L[j++] = f;
+    }
+    L.length = j;
+    if (landed) this._bumpCoins();
+    if (ring) this.api.sound('coin', { pitch: 1 + Math.random() * 0.1, minGap: 0.06 });
+    this._flyRaf = L.length ? requestAnimationFrame((t) => this._flyStep(t)) : 0;
+  }
+  _bumpCoins() {
+    if (this._bump && this._bump.playState === 'running' && this._bump.currentTime < 80) return;
+    this._bump?.cancel();
+    this._bump = this.coinsEl.animate([{ scale: 1 }, { scale: 1.14 }, { scale: 1 }], { duration: 220, easing: 'ease-out' });
   }
 
   flySeed(x, y, gHtml) {
@@ -838,6 +867,7 @@ export class UI {
       }
       T.ghost = el('div', 'tut-ghost');
       T.hand = el('div', 'tut-hand', icon('hand', 64));
+      T.tip = null;
       T.bubble = el('div', 'tut-bubble' + (spec.soft ? ' soft' : ''), `${spec.soft ? '' : `<div class="queen">${visitorSVG('queen', '#ffc928', 58)}</div>`}<span class="txt"></span>`);
       if (spec.skip) {
         const sk = el('button', 'tut-skip', 'Skip');
@@ -864,12 +894,14 @@ export class UI {
     // the hand: taps in place, or drags from one point to another (with what it carries under the finger)
     const h = spec.hand;
     const hs = T.hand.style, gs = T.ghost.style;
+    if (!T.tip && T.hand.isConnected) { const w = T.hand.offsetWidth || 48; T.tip = { x: w * (10.6 / 24), y: w * (3.2 / 24) }; }
+    const tip = T.tip || { x: 12, y: 6 };
     if (!h) { hs.display = 'none'; gs.display = 'none'; }
     else if (h.tap) {
       hs.display = ''; gs.display = 'none';
       T.hand.classList.remove('drag');
       hs.opacity = '1';
-      hs.transform = `translate(${h.tap.x - 12}px, ${h.tap.y - 6}px)`;
+      hs.transform = `translate(${(h.tap.x - tip.x).toFixed(1)}px, ${(h.tap.y - tip.y).toFixed(1)}px)`;
     } else if (h.drag) {
       const d = h.drag, C = 2400, t = ((performance.now() - T.t0) % C) / C;
       const e = t < 0.14 ? 0 : t > 0.64 ? 1 : ease01((t - 0.14) / 0.5);
@@ -880,7 +912,7 @@ export class UI {
       const a = t < 0.08 ? t / 0.08 : t > 0.84 ? Math.max(0, 1 - (t - 0.84) / 0.12) : 1;
       T.hand.classList.add('drag');
       hs.display = ''; hs.opacity = a.toFixed(3);
-      hs.transform = `translate(${x - 12}px, ${y - 6}px) scale(${press.toFixed(3)})`;
+      hs.transform = `translate(${(x - tip.x).toFixed(1)}px, ${(y - tip.y).toFixed(1)}px) scale(${press.toFixed(3)})`;
       if (h.ghost && t > 0.1 && t < 0.72) {
         if (T.ghostHtml !== h.ghost) { T.ghostHtml = h.ghost; T.ghost.innerHTML = h.ghost; }
         gs.display = ''; gs.opacity = a.toFixed(3);
