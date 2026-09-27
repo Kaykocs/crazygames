@@ -7,12 +7,12 @@ order, and every text field ready to copy. On GitHub, each grey box has a copy b
 
 | # | File | Upload it as |
 |---|---|---|
-| 1 | [`1-game/buzz-and-bloom-1.0.0.zip`](1-game/buzz-and-bloom-1.0.0.zip) | **Game files** (HTML5). `index.html` sits at the root of the zip. 188 KB. |
+| 1 | [`1-game/buzz-and-bloom-1.0.0.zip`](1-game/buzz-and-bloom-1.0.0.zip) | **Game files** (HTML5). `index.html` sits at the root of the zip. 190 KB. |
 | 2 | [`2-covers/cover-landscape-1920x1080.png`](2-covers/cover-landscape-1920x1080.png) | **Landscape cover** (16:9) |
 | 3 | [`2-covers/cover-portrait-800x1200.png`](2-covers/cover-portrait-800x1200.png) | **Portrait cover** (2:3) |
 | 4 | [`2-covers/cover-square-800x800.png`](2-covers/cover-square-800x800.png) | **Square cover** (1:1) |
-| 5 | [`3-videos/trailer-landscape-1920x1080.mp4`](3-videos/trailer-landscape-1920x1080.mp4) | **Landscape preview video** (19.8 s, 30 fps, no sound, 17.8 MB) |
-| 6 | [`3-videos/trailer-portrait-1080x1920.mp4`](3-videos/trailer-portrait-1080x1920.mp4) | **Portrait / mobile preview video** (18.1 s, 30 fps, no sound, 13.6 MB) |
+| 5 | [`3-videos/trailer-landscape-1920x1080.mp4`](3-videos/trailer-landscape-1920x1080.mp4) | **Landscape preview video** (19.8 s, 30 fps, no sound, 15.6 MB) |
+| 6 | [`3-videos/trailer-portrait-1080x1920.mp4`](3-videos/trailer-portrait-1080x1920.mp4) | **Portrait / mobile preview video** (18.0 s, 30 fps, no sound, 12.5 MB) |
 
 The covers show only the game title as text. The videos are real gameplay with no text overlays.
 
