@@ -1,14 +1,70 @@
-// The lawn: painterly colour patches, thousands of fine grass strokes, stylised tufts, clover, tiny daisies and
-// buttercups, pebbles and fallen petals. Painted in screen-space world units (X = x, Y = z·SQ) over any rectangle;
-// every detail is seeded by its world cell so repainting at another zoom gives the same lawn.
-import { hash2, rng, softEllipse } from './paint.js';
-import { rgba, shade } from './color.js';
+// The lawn, painted in layers into the cached ground tiles:
+//  1. a world-aligned tone map (painted once at a few pixels per unit and upscaled into every tile): soft
+//     painterly colour patches, mown stripes, warm meadows, cool tree shade, worn earth, damp pond margins;
+//  2. zone masks sampled per detail (no grass on paths / water, meadow vs mown lawn, shade under trees);
+//  3. stamped texture: fine grain and little grass marks that cluster into sunlit and shaded patches;
+//  4. details in drifts: clover patches, daisies, buttercups, dandelions, violets, pebbles, fallen leaves and
+//     petals, moss, toadstools, wildflowers and long grass in the meadows.
+// Everything is seeded by world cell, so any tile at any zoom repaints exactly the same lawn.
+import { hash2, noise2 } from './paint.js';
+import { put, stampCount } from './stamps.js';
 
 export const LAWN = {
   base: '#7cc458',
   patches: ['#96d36a', '#69b04b', '#a8cf62', '#6fbd63', '#8acb5f'],
-  blades: ['#5a9f41', '#8ccf5e', '#b2e584'],
 };
+
+// ------------------------------------------------------------------------------------------ ground map
+// Low-resolution maps of the whole world in screen-space units (X = x, Y = z·SQ):
+//   tone  – colour canvas blitted under every tile
+//   mask  – per-pixel channels: [hard (no grass), wild (0 mown … 1 meadow), shade, woods]
+export class GroundMap {
+  constructor(bounds, res) {
+    this.b = bounds; this.res = res;
+    this.w = Math.ceil((bounds.X1 - bounds.X0) * res); this.h = Math.ceil((bounds.Y1 - bounds.Y0) * res);
+    this.tone = null; this.m1 = null; this.m2 = null;
+  }
+  canvas() {
+    const c = document.createElement('canvas');
+    c.width = this.w; c.height = this.h;
+    const g = c.getContext('2d');
+    g.setTransform(this.res, 0, 0, this.res, -this.b.X0 * this.res, -this.b.Y0 * this.res);
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    return { c, g };
+  }
+  // paintMask1(g) draws R = hard, G = wild, B = shade; paintMask2(g): R = woods, G = damp, B = worn;
+  // paintTone(g, map) draws the colour map (may sample the masks)
+  build(paintMask1, paintMask2, paintTone, warp) {
+    const a = this.canvas(); a.g.fillStyle = '#000'; a.g.fillRect(this.b.X0, this.b.Y0, this.b.X1 - this.b.X0, this.b.Y1 - this.b.Y0);
+    a.g.globalCompositeOperation = 'lighter'; paintMask1(a.g); this.m1 = a.g.getImageData(0, 0, this.w, this.h).data;
+    const b = this.canvas(); b.g.fillStyle = '#000'; b.g.fillRect(this.b.X0, this.b.Y0, this.b.X1 - this.b.X0, this.b.Y1 - this.b.Y0);
+    b.g.globalCompositeOperation = 'lighter'; paintMask2(b.g); this.m2 = b.g.getImageData(0, 0, this.w, this.h).data;
+    warp?.(this);
+    const t = this.canvas(); paintTone(t.g, this); this.tone = t.c;
+    return this;
+  }
+  // world position of mask pixel (i, j)
+  px2w(i, j) { return [this.b.X0 + (i + 0.5) / this.res, this.b.Y0 + (j + 0.5) / this.res]; }
+  // bilinear sample of a mask channel (0..1); m: 1 or 2, ch: 0..2
+  s(m, ch, X, Y) {
+    const d = m === 1 ? this.m1 : this.m2;
+    let fx = (X - this.b.X0) * this.res - 0.5, fy = (Y - this.b.Y0) * this.res - 0.5;
+    if (fx < 0) fx = 0; else if (fx > this.w - 1.001) fx = this.w - 1.001;
+    if (fy < 0) fy = 0; else if (fy > this.h - 1.001) fy = this.h - 1.001;
+    const ix = fx | 0, iy = fy | 0, tx = fx - ix, ty = fy - iy;
+    const i = (iy * this.w + ix) * 4 + ch, W4 = this.w * 4;
+    const a = d[i] + (d[i + 4] - d[i]) * tx, b = d[i + W4] + (d[i + W4 + 4] - d[i + W4]) * tx;
+    return (a + (b - a) * ty) / 255;
+  }
+  // the tone map under a tile (with a margin so bilinear upscaling matches the neighbouring tiles exactly)
+  blit(ctx, X0, Y0, X1, Y1) {
+    const b = this.b, r = this.res;
+    const sx0 = Math.max(0, Math.floor((X0 - b.X0) * r) - 2), sy0 = Math.max(0, Math.floor((Y0 - b.Y0) * r) - 2);
+    const sx1 = Math.min(this.w, Math.ceil((X1 - b.X0) * r) + 2), sy1 = Math.min(this.h, Math.ceil((Y1 - b.Y0) * r) + 2);
+    if (sx1 <= sx0 || sy1 <= sy0) return;
+    ctx.drawImage(this.tone, sx0, sy0, sx1 - sx0, sy1 - sy0, b.X0 + sx0 / r, b.Y0 + sy0 / r, (sx1 - sx0) / r, (sy1 - sy0) / r);
+  }
+}
 
 function cells(X0, Y0, X1, Y1, cw, ch, pad, fn) {
   const i0 = Math.floor((X0 - pad) / cw), i1 = Math.ceil((X1 + pad) / cw);
@@ -16,130 +72,102 @@ function cells(X0, Y0, X1, Y1, cw, ch, pad, fn) {
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) fn(i, j);
 }
 
-// opts.density(X, Y) → 0..1 detail density (0 = keep clear, e.g. paths, pond); opts.wild(X, Y) → 0..1 (taller)
-export function paintLawn(ctx, X0, Y0, X1, Y1, px, opts = {}) {
-  const density = opts.density || (() => 1);
-  const wild = opts.wild || (() => 0);
-  ctx.fillStyle = opts.base || LAWN.base;
-  ctx.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
-
-  // 1. soft colour patches
-  cells(X0, Y0, X1, Y1, 2.4, 1.8, 3.6, (i, j) => {
-    for (let k = 0; k < 2; k++) {
-      const h = hash2(i, j, 11 + k);
-      const x = (i + hash2(i, j, 21 + k)) * 2.4, y = (j + hash2(i, j, 31 + k)) * 1.8;
-      const r = 1.3 + h * 2.3;
-      const c = LAWN.patches[Math.floor(hash2(i, j, 41 + k) * LAWN.patches.length)];
-      softEllipse(ctx, x, y, r, r * 0.75, c, 0.32 + hash2(i, j, 51 + k) * 0.2, 0.1);
-    }
+// ------------------------------------------------------------------------------------------ texture
+// fine grain + grass marks, straight into the tile (tiny, flat: no sorting needed)
+export function paintGrass(ctx, X0, Y0, X1, Y1, px, map) {
+  const res = 1 / px;
+  if (res < 18) return;
+  const nG = stampCount('grain');
+  if (res >= 30) {
+    cells(X0, Y0, X1, Y1, 0.62, 0.3, 0.5, (i, j) => {
+      const x = (i + hash2(i, j, 101)) * 0.62, y = (j + hash2(i, j, 102)) * 0.3;
+      if (map.s(1, 0, x, y) > 0.35) return;
+      if (hash2(i, j, 103) > 0.72) return;
+      put(ctx, 'grain', Math.floor(hash2(i, j, 104) * nG), x, y, res, hash2(i, j, 105) < 0.5);
+    });
+  }
+  // sun flecks dappling the shade under the trees
+  cells(X0, Y0, X1, Y1, 0.8, 0.5, 0.6, (i, j) => {
+    const x = (i + hash2(i, j, 121)) * 0.8, y = (j + hash2(i, j, 122)) * 0.5;
+    const sh = map.s(1, 2, x, y);
+    if (sh < 0.3 || hash2(i, j, 123) > (sh - 0.25) * 0.9 || map.s(1, 0, x, y) > 0.5) return;
+    put(ctx, 'dapple', Math.floor(hash2(i, j, 124) * 4), x, y, res, hash2(i, j, 125) < 0.5);
   });
-
-  if (opts.coarse) return;          // low-res overview: colour only
-
-  // 2. fine grass strokes (batched per tone)
-  const paths = LAWN.blades.map(() => new Path2D());
-  cells(X0, Y0, X1, Y1, 0.17, 0.13, 0.2, (i, j) => {
-    const d = density(i * 0.17, j * 0.13);
-    if (hash2(i, j, 3) > 0.35 + 0.6 * d) return;
-    const x = (i + hash2(i, j, 4)) * 0.17, y = (j + hash2(i, j, 5)) * 0.13;
-    const n = 2 + Math.floor(hash2(i, j, 6) * 2);
-    const tall = 1 + wild(x, y) * 1.6;
-    for (let b = 0; b < n; b++) {
-      const t = Math.floor(hash2(i, j, 7 + b) * 3);
-      const len = (0.05 + hash2(i, j, 9 + b) * 0.06) * tall, lean = (hash2(i, j, 12 + b) - 0.5) * 0.06 * tall;
-      const bx = x + (b - n / 2) * 0.018;
-      const p = paths[t];
-      p.moveTo(bx, y); p.quadraticCurveTo(bx + lean * 0.2, y - len * 0.6, bx + lean, y - len);
-    }
+  cells(X0, Y0, X1, Y1, 0.36, 0.22, 0.5, (i, j) => {
+    const x = (i + hash2(i, j, 111)) * 0.36, y = (j + hash2(i, j, 112)) * 0.22;
+    const hard = map.s(1, 0, x, y);
+    if (hard > 0.3) return;
+    const wild = map.s(1, 1, x, y), shade = map.s(1, 2, x, y);
+    // marks gather in loose drifts with calmer lawn between them
+    const dens = noise2(x * 0.42 + 3, y * 0.62, 13);
+    const p = 0.08 + dens * dens * 0.62 + wild * 0.2 - hard;
+    if (hash2(i, j, 113) > p) return;
+    // light marks gather in sunny patches, dark marks in the hollows and in shade
+    const sun = noise2(x * 0.55, y * 0.75, 7) * 0.8 + hash2(i, j, 114) * 0.4 - shade * 0.5;
+    const v = Math.floor(hash2(i, j, 115) * 6) + (sun > 0.55 ? 6 : 0);
+    put(ctx, 'grass', v, x, y, res, hash2(i, j, 116) < 0.5);
   });
-  ctx.lineCap = 'round';
-  LAWN.blades.forEach((c, t) => { ctx.strokeStyle = rgba(c, t === 0 ? 0.55 : 0.6); ctx.lineWidth = Math.max(0.012, px * 1.25); ctx.stroke(paths[t]); });
-
-  // 3. details, painted in y order per band so nearer things overlap farther ones
-  const items = [];
-  cells(X0, Y0, X1, Y1, 0.8, 0.62, 0.6, (i, j) => {
-    const x = (i + hash2(i, j, 61)) * 0.8, y = (j + hash2(i, j, 62)) * 0.62;
-    const d = density(x, y);
-    if (d <= 0.02) return;
-    const r = hash2(i, j, 63);
-    const w = wild(x, y);
-    if (r < 0.2 * d + w * 0.2) items.push({ y, f: 'tuft', x, s: hash2(i, j, 64), big: w });
-    else if (r < 0.27 * d + w * 0.1) items.push({ y, f: 'daisies', x, s: hash2(i, j, 65) });
-    else if (r < 0.31 * d) items.push({ y, f: 'clover', x, s: hash2(i, j, 66) });
-    else if (r < 0.335 * d) items.push({ y, f: 'buttercup', x, s: hash2(i, j, 67) });
-    else if (r < 0.35 * d) items.push({ y, f: 'pebble', x, s: hash2(i, j, 68) });
-  });
-  items.sort((a, b) => a.y - b.y);
-  for (const it of items) DETAIL[it.f](ctx, it.x, it.y, it.s, px, it.big);
 }
 
-const DETAIL = {
-  tuft(ctx, x, y, s, px, big = 0) {
-    const R = rng(Math.floor(s * 1e6) + 1);
-    const n = 5 + Math.floor(R() * 4), h = (0.14 + R() * 0.1) * (1 + big * 0.8);
-    softEllipse(ctx, x + 0.02, y + 0.01, 0.16, 0.05, '#2d5a1c', 0.3);
-    for (let b = 0; b < n; b++) {
-      const t = (b / (n - 1)) - 0.5;
-      const a = t * 1.3 + (R() - 0.5) * 0.3, len = h * (1 - Math.abs(t) * 0.5) * (0.8 + R() * 0.4);
-      const bx = x + t * 0.1, tx = bx + Math.sin(a) * len, ty = y - Math.cos(a) * len;
-      const w = 0.022 + R() * 0.01;
-      ctx.beginPath();
-      ctx.moveTo(bx - w, y);
-      ctx.quadraticCurveTo(bx - w * 0.5 + (tx - bx) * 0.3, y - len * 0.5, tx, ty);
-      ctx.quadraticCurveTo(bx + w * 0.5 + (tx - bx) * 0.3, y - len * 0.5, bx + w, y);
-      ctx.closePath();
-      const g = ctx.createLinearGradient(0, y, 0, ty);
-      g.addColorStop(0, '#3f8a31'); g.addColorStop(1, b % 2 ? '#a6de72' : '#8fd062');
-      ctx.fillStyle = g; ctx.fill();
-      ctx.strokeStyle = rgba('#2f6b25', 0.55); ctx.lineWidth = Math.max(0.008, px * 0.8); ctx.stroke();
+// ------------------------------------------------------------------------------------------ details
+// Pushes { y, k (stamp kind), v, x, f (flip) } items for the caller to sort with its own items and stamp.
+export function lawnDetails(X0, Y0, X1, Y1, px, map, out, opts = {}) {
+  const res = 1 / px;
+  const petals = opts.petals || (() => 0);
+  const tiny = res < 22;
+  cells(X0, Y0, X1, Y1, 0.7, 0.42, 0.7, (i, j) => {
+    const x = (i + hash2(i, j, 61)) * 0.7, y = (j + hash2(i, j, 62)) * 0.42;
+    const hard = map.s(1, 0, x, y);
+    if (hard > 0.25) return;
+    const wild = map.s(1, 1, x, y), shade = map.s(1, 2, x, y);
+    const woods = map.s(2, 0, x, y), damp = map.s(2, 1, x, y);
+    const r = hash2(i, j, 63), f = hash2(i, j, 64) < 0.5, h = hash2(i, j, 65);
+    // drifts: low-frequency noise decides where clover / daisies / violets gather
+    const clov = noise2(x * 0.32 + 11, y * 0.45, 3), dais = noise2(x * 0.28 - 7, y * 0.4, 5), cold = noise2(x * 0.5, y * 0.6, 9);
+    const push = (k, v, dx = 0, dy = 0) => out.push({ y: y + dy, x: x + dx, k, v, f });
+    if (woods > 0.5) {
+      // woods floor: ferns, leaf litter, moss, mushrooms
+      if (r < 0.18) push('fern', Math.floor(h * 4));
+      else if (r < 0.42) push('leaf', Math.floor(h * 16));
+      else if (r < 0.52) push('moss', Math.floor(h * 6));
+      else if (r < 0.56) push('shroom', Math.floor(h * 6));
+      else if (r < 0.62) push('twig', Math.floor(h * 4));
+      return;
     }
-  },
-  daisies(ctx, x, y, s, px) {
-    const R = rng(Math.floor(s * 1e6) + 7);
-    const n = 2 + Math.floor(R() * 4);
-    for (let k = 0; k < n; k++) {
-      const dx = x + (R() - 0.5) * 0.4, dy = y + (R() - 0.5) * 0.18, r = 0.035 + R() * 0.015;
-      ctx.strokeStyle = '#4c9a3a'; ctx.lineWidth = Math.max(0.01, px);
-      ctx.beginPath(); ctx.moveTo(dx, dy + 0.06); ctx.lineTo(dx, dy); ctx.stroke();
-      softEllipse(ctx, dx + 0.01, dy + 0.06, 0.05, 0.015, '#2d5a1c', 0.25);
-      ctx.fillStyle = '#ffffff'; ctx.strokeStyle = rgba('#9a8fb0', 0.7); ctx.lineWidth = Math.max(0.006, px * 0.6);
-      for (let p = 0; p < 7; p++) {
-        const a = (p / 7) * Math.PI * 2;
-        ctx.beginPath(); ctx.ellipse(dx + Math.cos(a) * r * 0.75, dy + Math.sin(a) * r * 0.5, r * 0.5, r * 0.26, a, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      }
-      ctx.fillStyle = '#ffc93a'; ctx.beginPath(); ctx.ellipse(dx, dy, r * 0.38, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+    if (wild > 0.55) {
+      // meadow: long grass and wildflowers in drifts
+      if (tiny && r > 0.5) return;
+      const kind = Math.floor(noise2(x * 0.22, y * 0.3, 21) * 6);
+      if (r < 0.34) push('meadow', Math.floor(h * 8));
+      else if (r < 0.34 + 0.36 * wild) push('wild', kind + 6 * Math.floor(h * 3));
+      else if (r < 0.8) push('flowers', Math.floor(h * 16));
+      return;
     }
-  },
-  buttercup(ctx, x, y, s, px) {
-    const R = rng(Math.floor(s * 1e6) + 9);
-    for (let k = 0; k < 3; k++) {
-      const dx = x + (R() - 0.5) * 0.3, dy = y + (R() - 0.5) * 0.12, r = 0.03;
-      ctx.strokeStyle = '#4c9a3a'; ctx.lineWidth = Math.max(0.01, px);
-      ctx.beginPath(); ctx.moveTo(dx, dy + 0.08); ctx.quadraticCurveTo(dx + 0.01, dy + 0.04, dx, dy); ctx.stroke();
-      ctx.fillStyle = '#ffd53d'; ctx.strokeStyle = '#c98a10'; ctx.lineWidth = Math.max(0.006, px * 0.7);
-      ctx.beginPath(); ctx.arc(dx, dy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.beginPath(); ctx.arc(dx - r * 0.3, dy - r * 0.3, r * 0.35, 0, Math.PI * 2); ctx.fill();
+    if (tiny) { if (r < 0.1) push('daisy', Math.floor(h * 8)); return; }
+    // tended lawn
+    const pet = petals(x, y);
+    if (pet > 0 && r < pet * 0.5) { push('petal', Math.floor(h * 8)); return; }
+    if (shade > 0.35) {
+      if (r < 0.2 * shade) { push('leaf', Math.floor(h * 16)); return; }
+      if (r < 0.28 * shade) { push('moss', Math.floor(h * 6)); return; }
+      if (r < 0.31 * shade) { push('shroom', Math.floor(h * 6)); return; }
     }
-  },
-  clover(ctx, x, y, s, px) {
-    const R = rng(Math.floor(s * 1e6) + 3);
-    for (let k = 0; k < 4; k++) {
-      const cx = x + (R() - 0.5) * 0.35, cy = y + (R() - 0.5) * 0.14, r = 0.03 + R() * 0.012;
-      ctx.fillStyle = k % 2 ? '#5aa843' : '#4f9c3c'; ctx.strokeStyle = rgba('#2f6b25', 0.6); ctx.lineWidth = Math.max(0.006, px * 0.7);
-      for (let l = 0; l < 3; l++) {
-        const a = (l / 3) * Math.PI * 2 - Math.PI / 2 + R() * 0.3;
-        ctx.beginPath(); ctx.ellipse(cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.6, r, r * 0.7, a, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      }
-    }
-  },
-  pebble(ctx, x, y, s, px) {
-    const R = rng(Math.floor(s * 1e6) + 5);
-    for (let k = 0; k < 2; k++) {
-      const cx = x + (R() - 0.5) * 0.2, cy = y + (R() - 0.5) * 0.08, r = 0.03 + R() * 0.03;
-      softEllipse(ctx, cx + r * 0.3, cy + r * 0.4, r * 1.5, r * 0.6, '#1d3a12', 0.3);
-      ctx.fillStyle = shade('#cfc6b4', (R() - 0.5) * 0.2); ctx.strokeStyle = '#7d7262'; ctx.lineWidth = Math.max(0.007, px * 0.8);
-      ctx.beginPath(); ctx.ellipse(cx, cy, r * 1.3, r * 0.8, (R() - 0.5) * 0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.ellipse(cx - r * 0.4, cy - r * 0.3, r * 0.45, r * 0.25, 0, 0, Math.PI * 2); ctx.fill();
-    }
-  },
-};
+    if (damp > 0.3 && r < 0.12 * damp) { push('moss', Math.floor(h * 6)); return; }
+    if (clov > 0.62 && r < (clov - 0.55) * 1.6) { push('clover', Math.floor(h * 8)); return; }
+    if (dais > 0.6 && r < (dais - 0.52) * 1.1) { push('daisy', Math.floor(h * 8)); return; }
+    if (r < 0.035) push('flowers', Math.floor(h * 4) * 4 + (cold > 0.55 ? 2 : cold > 0.45 ? 3 : 0));
+    else if (r < 0.055) push('flowers', Math.floor(h * 4) * 4 + 1);
+    else if (r < 0.075) push('pebble', Math.floor(h * 8));
+    else if (r < 0.09 + wild * 0.08) push('tuft', Math.floor(h * 8));
+    else if (r < 0.1) push('twig', Math.floor(h * 4));
+  });
+}
+
+export function stampItems(ctx, items, px) {
+  const res = 1 / px;
+  items.sort((a, b) => a.y - b.y);
+  for (const it of items) {
+    if (it.draw) it.draw(ctx, px);
+    else put(ctx, it.k, it.v, it.x, it.y, res, it.f, it.s || 1);
+  }
+}

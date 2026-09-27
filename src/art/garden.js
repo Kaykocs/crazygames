@@ -15,22 +15,38 @@ import { HIVE_ENTRANCE } from './built.js';
 import { propSprite } from './world.js';
 import { GoldenBee } from './golden.js';
 
-// wild meadow growing on plots the player hasn't claimed yet (cleared when the plot is bought)
-const WILD_COLS = [['#ff7eb6', '#ffffff', '#ffd23f'], ['#8f6bff', '#ffffff', '#4fb5ff'], ['#ff9f43', '#ffd23f', '#ffffff'], ['#ffffff', '#ffd23f', '#ff8fb8']];
+// wild meadow growing on plots the player hasn't claimed yet (cleared when the plot is bought): soft long grass
+// with wildflowers, and on each plot one accent — a flower clump, a fern in the shadier back rows, a foxglove,
+// toadstools or a mossy stone. Sizes and seeds come from small pools so plots share a few dozen sprites.
+const WILD_COLS = [['#ffffff', '#ffe98a'], ['#ffffff', '#c9b6ff'], ['#ffd6e8', '#ffffff'], ['#ffe98a', '#ffffff'], ['#b8d4ff', '#ffffff'], ['#ff9cc2', '#ffffff']];
 function wildPatch(i, R) {
+  // where the plot sits (same order as the garden's hexagon of radius 3)
+  let q = 0, r = 0;
+  for (let n = 0, a = -3; a <= 3; a++) for (let b = Math.max(-3, -a - 3); b <= Math.min(3, -a + 3); b++, n++) if (n === i) { q = a; r = b; }
+  const z = Math.sqrt(3) * (r + q / 2), ring = Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
   const out = [];
-  const n = 2 + Math.floor(R() * 2);
-  const big = R();
-  for (let k = 0; k < n; k++) {
-    const a = (k / n) * Math.PI * 2 + R() * 1.2, r = 0.3 + R() * 0.45;
-    const dx = Math.cos(a) * r, dz = Math.sin(a) * r * 0.85;
-    let kind = 'grass', s = 0.62 + R() * 0.3, extra = {};
-    if (k === 0 && big < 0.22) { kind = 'bush'; s = 0.5; extra = { v: R() < 0.4 ? 'flowers' : 'green', c: ['#ffffff', '#ffe066'][Math.floor(R() * 2)] }; }
-    else if (k === 0 && big < 0.34) { kind = 'rock'; s = 0.42; }
-    else if (k === 0 && big < 0.42) { kind = 'mushrooms'; s = 0.7; }
-    else if (R() < 0.22) { kind = 'clump'; s = 0.62; extra.cols = WILD_COLS[Math.floor(R() * WILD_COLS.length)]; }
-    out.push({ kind, dx, dz, s, seed: 1000 + i * 17 + k, ...extra });
-  }
+  const pick = (m) => Math.floor(R() * m);
+  const size = (a) => [0.62, 0.7, 0.78, 0.86][Math.min(3, a + pick(2))];
+  const put = (kind, k, a, rad, extra) => {
+    const ang = a + (R() - 0.5) * 0.8;
+    out.push({ kind, dx: Math.cos(ang) * rad, dz: Math.sin(ang) * rad * 0.8, seed: 1000 + pick(7) * 13 + k, ...extra });
+  };
+  const a0 = R() * Math.PI * 2;
+  // long grass with a few flowers: one or two tufts
+  put('meadow', 0, a0, 0.12 + R() * 0.25, { s: size(1), cols: WILD_COLS[pick(WILD_COLS.length)] });
+  if (R() < 0.6) put('meadow', 1, a0 + 2.4, 0.45 + R() * 0.15, { s: size(0), cols: WILD_COLS[pick(WILD_COLS.length)] });
+  // the accent
+  const t = R(), shady = z < -1.5;
+  const a1 = a0 + 4.2;
+  if (t < 0.3) put('clump', 2, a1, 0.45, { s: 0.7, cols: WILD_COLS[pick(WILD_COLS.length)] });
+  else if (t < (shady ? 0.58 : 0.42)) put('fern', 3, a1, 0.42, { s: 0.8 });
+  else if (t < (shady ? 0.64 : 0.54)) put('foxgloves', 4, a1, 0.4, { s: 0.75 });
+  else if (t < (shady ? 0.68 : 0.57)) put('mushrooms', 5, a1, 0.45, { s: 0.65 });
+  else if (t < 0.74) put('rock', 6, a1, 0.45, { s: 0.42 });
+  else if (t < 0.9) put('meadow', 7, a1, 0.45, { s: 0.62, cols: WILD_COLS[pick(WILD_COLS.length)] });
+  else put('grass', 7, a1, 0.45, { s: 0.62 });
+  // outer plots grow a little wilder
+  if (ring >= 3 && R() < 0.45) put(R() < 0.5 ? 'bush' : 'grass', 8, a0 + 1.2, 0.55, R() < 0.5 ? { s: 0.5, v: 'flowers', c: '#ffffff' } : { s: 0.7 });
   return out;
 }
 

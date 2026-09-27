@@ -1,12 +1,13 @@
 // Art lab: renders showcase sheets of the illustrated assets for visual iteration (tools/lab.mjs).
 import { headSprite, budSprite, leafSprite, paintHead, paintTulip, paintBud, paintLeaf } from './flowers.js';
 import { drawSprite } from './paint.js';
-import { paintLawn } from './lawn.js';
+import { paintGrass } from './lawn.js';
 import { planterSprite, saleSprite, glowSprite, wetSprite, SOIL_Y } from './planter.js';
 import { SQ, HY } from './view3q.js';
 import { hexToWorld, shapeHexagon } from '../game/hex.js';
 import * as N from './nature.js';
 import * as B from './built.js';
+import * as S from './scenery.js';
 import { iconURL, visitorURL } from './uiart.js';
 import { decorThumbURL } from './world.js';
 
@@ -51,7 +52,8 @@ scenes.garden = () => {
   ctx.setTransform(ppu, 0, 0, ppu, cx, cy);
   const px = 1 / ppu;
   const t0 = performance.now();
-  paintLawn(ctx, -cx / ppu, -cy / ppu, (W - cx) / ppu, (H - cy) / ppu, px);
+  ctx.fillStyle = '#7cc458'; ctx.fillRect(-cx / ppu, -cy / ppu, W / ppu, H / ppu);
+  paintGrass(ctx, -cx / ppu, -cy / ppu, (W - cx) / ppu, (H - cy) / ppu, px, { s: () => 0 });
   console.log('lawn ms', performance.now() - t0);
   ctx.restore();
   const res = Math.round(ppu * dpr);
@@ -127,6 +129,41 @@ scenes.built = () => {
   at(900, 800, (c, px) => B.paintStone(c, px, 3));
   at(1060, 800, (c, px) => B.paintStone(c, px, 4, 0.8));
   at(1250, 800, (c, px) => B.paintSign(c, px));
+};
+scenes.scenery = () => {
+  ctx.fillStyle = '#7cc458'; ctx.fillRect(0, 0, W, H);
+  const ppu = +(params.get('ppu') || 80);
+  const at = (x, y, fn) => { ctx.save(); ctx.setTransform(ppu, 0, 0, ppu, x, y); ctx.lineJoin = 'round'; ctx.lineCap = 'round'; fn(ctx, 1 / ppu); ctx.restore(); };
+  at(40, 250, (c, px) => { B.paintFence(c, px, 2.2, 3); });
+  at(40, 290, (c, px) => S.paintBorder(c, px, 5, 2.4));
+  at(260, 290, (c, px) => S.paintBorder(c, px, 11, 2.4));
+  at(480, 290, (c, px) => S.paintWall(c, px, 7, 2.6));
+  at(720, 260, (c, px) => S.paintPillar(c, px));
+  at(800, 290, (c, px) => S.paintGatePost(c, px));
+  at(900, 290, (c, px) => S.paintGateLeaf(c, px));
+  at(980, 290, (c, px) => S.paintHedge(c, px, 3, 2.2));
+  at(1260, 290, (c, px) => S.paintHedgeZ(c, px, 4, 2.2));
+  at(1380, 290, (c, px) => S.paintTopiary(c, px, 5));
+  at(1560, 290, (c, px) => S.paintJetty(c, px));
+  at(60, 560, (c, px) => S.paintIris(c, px, 3));
+  at(160, 560, (c, px) => S.paintLamp(c, px));
+  at(240, 560, (c, px) => S.paintVegBed(c, px, 1, 0));
+  at(440, 560, (c, px) => S.paintVegBed(c, px, 2, 1));
+  at(640, 560, (c, px) => S.paintVegBed(c, px, 3, 2));
+  at(840, 560, (c, px) => S.paintVegBed(c, px, 4, 3));
+  at(1080, 560, (c, px) => S.paintScarecrow(c, px));
+  at(1200, 560, (c, px) => S.paintPumpkins(c, px, 3));
+  at(1330, 560, (c, px) => S.paintSunflowers(c, px, 4));
+  at(1460, 560, (c, px) => S.paintWaterButt(c, px));
+  at(1540, 560, (c, px) => S.paintPotStack(c, px, 2));
+  at(200, 900, (c, px) => S.paintWillow(c, px, 3));
+  at(420, 900, (c, px) => S.paintLogPile(c, px, 1));
+  at(560, 900, (c, px) => S.paintFern(c, px, 2));
+  at(660, 900, (c, px) => S.paintFoxgloves(c, px, 3));
+  at(760, 900, (c, px) => S.paintMeadowTuft(c, px, 4));
+  at(860, 900, (c, px) => S.paintMeadowTuft(c, px, 9, 0.8));
+  at(960, 900, (c, px) => N.paintTallGrass(c, px, 11));
+  at(1060, 900, (c, px) => N.paintFlowerClump(c, px, 10));
 };
 scenes.ui = async () => {
   ctx.fillStyle = '#fff4dc'; ctx.fillRect(0, 0, W, H);
