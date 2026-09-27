@@ -18,7 +18,7 @@ await esbuild.build({
   minify: true,
   outfile: 'dist/game.js',
   format: 'iife',
-  target: ['es2020', 'safari14'],
+  target: ['es2020', 'safari15'],
   define: { __DEV__: 'false', __VERSION__: JSON.stringify(pkg.version) },
   legalComments: 'none',
   logLevel: 'warning',
@@ -29,7 +29,7 @@ await esbuild.build({
   minify: true,
   outfile: 'dist/game.css',
   loader: { '.woff2': 'file' },
-  assetNames: 'assets/[name]-[hash]',
+  assetNames: 'assets/fonts/[name]',
   logLevel: 'warning',
 });
 

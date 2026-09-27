@@ -1,5 +1,6 @@
 // Inline SVG art for the UI: a procedural flower icon for every genotype, visitor portraits and UI icons.
 import { COLORS } from '../game/genetics.js';
+import { flowerIconURL, seedIconURL } from '../art/flowers.js';
 
 let uid = 0;
 const id = (p) => `${p}${++uid}`;
@@ -43,70 +44,16 @@ const darken = (hex, k) => {
   return `rgb(${r},${g},${b})`;
 };
 
-// g: genes { c1, c2, shape, pattern, mut }. opts: { size, silhouette, glow }
+// g: genes { c1, c2, shape, pattern, mut }. opts: { size, silhouette }. Painted by the same code as the garden.
 export function flowerSVG(g, opts = {}) {
   const size = opts.size || 48;
-  const sil = !!opts.silhouette;
-  const c1 = sil ? '#b9a98f' : COLORS[g.c1].hex, c2 = sil ? '#a8987e' : COLORS[g.c2 ?? g.c1].hex;
-  const gid = id('fg');
-  const defs = [];
-  let fill = c1;
-  const mut = sil ? 0 : g.mut || 0;
-  const pat = sil ? 0 : g.pattern || 0;
-  if (mut === 3) {
-    defs.push(`<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff2a8"/><stop offset="0.55" stop-color="#ffcf3f"/><stop offset="1" stop-color="#c98a14"/></linearGradient>`);
-    fill = `url(#${gid})`;
-  } else if (pat === 1) {
-    defs.push(`<radialGradient id="${gid}" cx="0" cy="0" r="46" gradientUnits="userSpaceOnUse"><stop offset="0.12" stop-color="${c2}"/><stop offset="0.62" stop-color="${c1}"/></radialGradient>`);
-    fill = `url(#${gid})`;
-  } else if (pat === 4) {
-    defs.push(`<radialGradient id="${gid}" cx="0" cy="0" r="46" gradientUnits="userSpaceOnUse"><stop offset="0.62" stop-color="${c1}"/><stop offset="0.86" stop-color="${c2}"/></radialGradient>`);
-    fill = `url(#${gid})`;
-  }
-  const rainbow = ['#ff6b6b', '#ffb84d', '#ffe66b', '#7ee07a', '#6bc8ff', '#b28bff'];
-  const stroke = sil ? '#8f8068' : darken(COLORS[g.c1].hex, 0.62);
-  let body = '';
-  const layers = shapeLayers(g.shape);
-  if (layers === 'tulip') {
-    const f = mut === 4 ? rainbow[2] : fill;
-    body += `<path d="M0 30 C -2 38 -2 44 0 48" stroke="#3f9d44" stroke-width="4" fill="none"/>`;
-    body += `<path d="M-22 -8 C -26 14 -14 30 0 30 C 14 30 26 14 22 -8 C 16 -2 10 -14 0 -22 C -10 -14 -16 -2 -22 -8 Z" fill="${f}" stroke="${stroke}" stroke-width="2.4" stroke-linejoin="round"/>`;
-    body += `<path d="M-10 -12 C -6 6 -2 18 0 30 C 2 18 6 6 10 -12" fill="none" stroke="${stroke}" stroke-width="1.6" opacity="0.6"/>`;
-    if (pat === 2) body += `<path d="M0 -18 L0 28" stroke="${c2}" stroke-width="4" opacity="0.9"/>`;
-    if (pat === 3) body += `<circle cx="-8" cy="6" r="3.4" fill="${c2}"/><circle cx="9" cy="12" r="3" fill="${c2}"/><circle cx="2" cy="-4" r="2.6" fill="${c2}"/>`;
-  } else {
-    for (const L of layers) {
-      for (let i = 0; i < L.n; i++) {
-        const a = (i / L.n) * 360 + (L.rot || 0);
-        const f = mut === 4 ? rainbow[i % rainbow.length] : fill;
-        body += `<g transform="rotate(${a}) scale(${L.s})"><path d="${L.path}" fill="${f}" stroke="${stroke}" stroke-width="${g.shape === 1 ? 1.4 : 2.2}" stroke-linejoin="round"/>`;
-        if (pat === 2) body += `<path d="M0 -8 L0 -36" stroke="${c2}" stroke-width="${g.shape === 1 ? 2 : 3.4}" stroke-linecap="round"/>`;
-        if (pat === 3 && g.shape !== 1) body += `<circle cx="-4" cy="-24" r="3" fill="${c2}"/><circle cx="5" cy="-31" r="2.4" fill="${c2}"/>`;
-        body += '</g>';
-      }
-    }
-    const cc = mut === 3 ? '#ffe066' : centerColor(g);
-    const cr = g.shape === 1 ? 12 : 9;
-    body += `<circle r="${cr}" fill="${sil ? '#a8987e' : cc}" stroke="${sil ? '#8f8068' : darken(cc, 0.7)}" stroke-width="2"/>`;
-    if (!sil) body += `<circle cx="-3" cy="-3" r="${cr * 0.35}" fill="#fff" opacity="0.35"/>`;
-  }
-  let extra = '';
-  if (mut === 1) extra += '<circle cx="-18" cy="-20" r="4" fill="#fff" opacity="0.85"/><circle cx="20" cy="10" r="3" fill="#fff" opacity="0.8"/><circle cx="6" cy="-30" r="2.4" fill="#fff" opacity="0.8"/>';
-  if (mut === 2) defs.push(`<filter id="${gid}g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
-  if (mut === 3) extra += '<path d="M-30 -30 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3 z" fill="#fff" opacity="0.9"/>';
-  const scale = mut === 5 ? 1.12 : 1;
-  const filt = mut === 2 ? ` filter="url(#${gid}g)"` : '';
-  return `<svg class="flower-ico" viewBox="-52 -52 104 104" width="${size}" height="${size}" aria-hidden="true"><defs>${defs.join('')}</defs><g transform="scale(${scale})"${filt}>${body}</g>${extra}</svg>`;
+  const url = flowerIconURL(g, size, { sil: !!opts.silhouette });
+  return `<img class="flower-ico" src="${url}" width="${size}" height="${size}" alt="" draggable="false">`;
 }
 
-// seed icon (a little seed packet tinted by the flower's colour)
+// seed icon for a species not yet discovered
 export function seedSVG(g, size = 40) {
-  const c1 = COLORS[g.c1].hex, c2 = COLORS[g.c2 ?? g.c1].hex;
-  const pid = id('sp');
-  return `<svg viewBox="0 0 60 60" width="${size}" height="${size}" aria-hidden="true"><defs><linearGradient id="${pid}" x1="0" x2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${g.pattern ? c2 : c1}"/></linearGradient></defs>
-    <ellipse cx="30" cy="33" rx="15" ry="21" fill="url(#${pid})" stroke="${darken(c1, 0.55)}" stroke-width="3"/>
-    <path d="M30 14 C 26 24 26 42 30 52" stroke="${darken(c1, 0.55)}" stroke-width="2" fill="none" opacity="0.5"/>
-    <ellipse cx="24" cy="25" rx="4" ry="7" fill="#fff" opacity="0.45"/></svg>`;
+  return `<img class="flower-ico seed-ico" src="${seedIconURL(g, size)}" width="${size}" height="${size}" alt="" draggable="false">`;
 }
 
 // ------------------------------------------------------------------------------------------ visitors

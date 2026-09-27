@@ -47,9 +47,10 @@ for (const name of only) {
   await page.route('https://sdk.crazygames.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: mock }));
   page.on('console', (m) => { if (m.type() === 'error') { errors++; console.log(`[${name}] console.error:`, m.text()); } else if (args.verbose) console.log(`[${name}]`, m.type(), m.text()); });
   page.on('pageerror', (e) => { errors++; console.log(`[${name}] pageerror:`, e.message); });
+  page.on('response', (r) => { if (r.status() >= 400) console.log(`[${name}] HTTP ${r.status()}:`, r.url()); });
   const q = args.q ? `&quality=${args.q}` : '';
   const t0 = Date.now();
-  await page.goto(`${url}?reset${q}`);
+  await page.goto(`${url}?reset${q}${args.dist ? '&debug' : ''}`);
   await page.waitForFunction(() => window.__game && document.getElementById('loading') == null || document.getElementById('loading')?.classList.contains('done'), null, { timeout: 90000 });
   console.log(`[${name}] booted in ${Date.now() - t0} ms`);
   await page.waitForTimeout(1500);
@@ -169,7 +170,7 @@ for (const name of only) {
     await page.screenshot({ animations: 'disabled', path: `shots/${name}-8-book.png` });
     const log = await page.evaluate(() => (window.__sdkLog || []).map((x) => x.n).filter((n) => !n.startsWith('data.')));
     console.log(`[${name}] sdk calls:`, log.join(' '));
-    const perf = await page.evaluate(() => ({ calls: __game.R.renderer.info.render.calls, tris: __game.R.renderer.info.render.triangles, q: __game.qName }));
+    const perf = await page.evaluate(() => { const t0 = performance.now(); for (let i = 0; i < 20; i++) __game.stage.render(__game.time); return { msPerFrame: +((performance.now() - t0) / 20).toFixed(2), objects: __game.stage.list.length, q: __game.qName, dpr: __game.stage.dpr }; });
     console.log(`[${name}] render`, JSON.stringify(perf));
   }
   await ctx.close();

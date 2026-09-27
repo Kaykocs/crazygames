@@ -1,19 +1,18 @@
 // Buzz & Bloom — boot, main loop, input, tutorial and the glue between simulation, view, UI, audio and the
 // CrazyGames SDK.
-import * as THREE from 'three';
 import { sdk } from './core/sdk.js';
 import { on } from './core/events.js';
 import { audio } from './audio/audio.js';
-import { Renderer, detectQuality } from './gfx/renderer.js';
-import { Post } from './gfx/post.js';
-import { World } from './gfx/world.js';
-import { FX } from './gfx/fx.js';
+import { Stage, detectQuality, QUALITY } from './art/stage.js';
+import { World } from './art/world.js';
+import { FX } from './art/fx.js';
+import { tickBanks } from './art/paint.js';
 import { Garden, newSave } from './game/garden.js';
-import { GardenView, mutColor } from './game/view.js';
+import { GardenView, mutColor } from './art/garden.js';
 import { UI, fmt } from './ui/ui.js';
 import { flowerSVG, seedSVG, icon } from './ui/icons.js';
 import { loadSave, saveSoon, flush, wipeSave, loadSettings, saveSettings } from './core/save.js';
-import { QUALITY, DEFAULT_SETTINGS, DEV } from './config.js';
+import { DEFAULT_SETTINGS, DEV } from './config.js';
 import { COLORS, SHAPES, C, S, M, MUTATIONS, flowerName, makeFlower, speciesId, rarity } from './game/genetics.js';
 import { UPGRADES, xpForLevel } from './game/economy.js';
 
@@ -49,14 +48,11 @@ class Game {
     await nextFrame();
     setLoading(0.2);
 
-    // --- renderer + scene
+    // --- stage (2D canvas) + world
     const app = $('app');
-    this.R = new Renderer(app, this.qName);
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.3, 400);
-    this.post = new Post(this.R.renderer, this.scene, this.camera);
-    this.world = new World(this.R.renderer, this.scene, QUALITY[this.qName]);
-    this.fx = new FX(this.scene, QUALITY[this.qName]);
+    this.stage = new Stage(app, this.qName);
+    this.world = new World(this.stage, QUALITY[this.qName]);
+    this.fx = new FX(QUALITY[this.qName]);
     setLoading(0.45);
     await nextFrame();
 
@@ -70,8 +66,9 @@ class Game {
       this.garden.tutorialSpeed = 3;
       this.garden.forceChild = makeFlower(C.PURPLE, S.BLOSSOM);
     }
-    this.view = new GardenView(this.scene, this.camera, this.garden, this.fx, QUALITY[this.qName]);
-    this.view.onGrass = (q, r, visible) => this.world.setPlotGrass(q, r, visible);
+    this.view = new GardenView(this.stage, this.garden, this.fx, QUALITY[this.qName]);
+    this.view.nightK = () => this.world.weather.k.night;
+    this.stage.layers = [this.world, this.view, this.fx];
     this.ui = new UI($('ui'), this.garden, this._uiApi());
     this.ui.renderPouch();
     this.ui.renderOrders();
@@ -82,22 +79,18 @@ class Game {
     await nextFrame();
 
     // --- sizing
-    this.R.onResize = (w, h) => {
-      this.post.resize(w, h);
+    this.stage.onResize = (w, h) => {
       this.view.resize(w, h);
       this.view.setSafeArea(this.ui.insets());
-      this.post.setFocus(0.5, 0.3);
     };
-    this.R.onQuality = (q) => this._applyQuality(q);
-    this.post.setup(QUALITY[this.qName], innerWidth, innerHeight);
-    this.R.resize(true);
+    this.stage.onQuality = (q) => this._applyQuality(q);
+    this.stage.resize(true);
     addEventListener('resize', () => this._layoutSoon());
     addEventListener('orientationchange', () => this._layoutSoon());
     window.visualViewport?.addEventListener('resize', () => this._layoutSoon());
 
-    // --- warm up shaders so the first bloom / burst never hitches
+    // --- paint the first frames (sprite caches) while the loading screen is still up
     this._warmup();
-    try { await this.R.renderer.compileAsync(this.scene, this.camera); } catch { /* older browsers */ }
     for (let i = 0; i < 2; i++) { this._frame(1 / 60); await nextFrame(); }
     setLoading(1);
 
@@ -125,7 +118,7 @@ class Game {
     this._tutorial();
 
     // --- go
-    this.clock = new THREE.Timer();
+    this.last = performance.now();
     this.time = 0;
     $('loading').classList.add('done');
     setTimeout(() => $('loading')?.remove(), 700);
@@ -161,15 +154,14 @@ class Game {
     for (const id of ['birdbath', 'lanterns', 'windmill', 'fountain']) { s.decor[id] = 1; this.world.decor.place(id, false); }
     s.weather = { kind: 'clear', until: 1e9, total: 1e9 };
     this._weather('clear', false);
+    const W = innerWidth, H = innerHeight;
     const shots = {
-      landscape: { x: 0.2, y: 0.55, z: 0.9, dist: 9.2, el: 0.6, yaw: 0.2, focus: 0.36, band: 0.14 },
-      portrait: { x: 0.1, y: 0.5, z: 1.4, dist: 9.8, el: 0.72, yaw: 0.1, focus: 0.34, band: 0.16 },
-      square: { x: 0.1, y: 0.5, z: 1.0, dist: 9.4, el: 0.64, yaw: 0.16, focus: 0.36, band: 0.15 },
+      landscape: { x: 0.4, z: -0.6, ppu: Math.min(W / 13, H / 7.6) },
+      portrait: { x: 0.2, z: -0.2, ppu: Math.min(W / 9.4, H / 13) },
+      square: { x: 0.3, z: -0.4, ppu: Math.min(W / 10.5, H / 9) },
     };
     const sh = shots[kind] || shots.landscape;
     this.view.setCameraOverride(sh);
-    this.post.setFocus(sh.focus, sh.band);
-    if (this.post.tilt) this.post.tilt.uniforms.uMax.value = 7;
     // bees busy on the flowers in shot
     const busy = g.plots.map((p, i) => i).filter((i) => g.isBloom(i));
     g.bees.length = 0;
@@ -215,7 +207,7 @@ class Game {
 
   _layoutSoon() {
     clearTimeout(this._layoutT);
-    this._layoutT = setTimeout(() => { this.R.resize(true); this.view.setSafeArea(this.ui.insets()); }, 60);
+    this._layoutT = setTimeout(() => { this.stage.resize(true); this.view.setSafeArea(this.ui.insets()); }, 60);
   }
 
   // ------------------------------------------------------------------------------------------ game events
@@ -391,7 +383,6 @@ class Game {
 
   _weather(kind, announce) {
     this.world.setWeather(kind);
-    this.post.setWeather(kind);
     this.fx.setRain(kind === 'rain');
     this.fx.setFireflies(kind === 'night');
     this.fx.setMotes(kind === 'golden' || kind === 'rainbow');
@@ -439,7 +430,7 @@ class Game {
 
   // ------------------------------------------------------------------------------------------ input
   _input() {
-    const cv = this.R.renderer.domElement;
+    const cv = this.stage.canvas;
     const g = this.garden, ui = this.ui, view = this.view;
     let down = null;
     const pos = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -636,28 +627,29 @@ class Game {
     const qn = name === 'auto' ? detectQuality(sdk.cg?.user?.systemInfo) : name;
     if (!QUALITY[qn] || qn === this.qName) return;
     this.qName = qn;
-    this.R.setQuality(qn);
-    this.post.setup(QUALITY[qn], this.R.width, this.R.height);
+    this.stage.setQuality(qn);
   }
   _applyQuality(q) {
-    this.world.setShadows(q.shadows);
-    this.scene.traverse((o) => { if (o.material) { for (const m of [].concat(o.material)) m.needsUpdate = true; } });
-    if (this.post.q && q.post === false) this.post.setup({ ...q, post: false }, this.R.width, this.R.height);
+    this.qName = q.name;
+    this.fx.setQuality(q);
+    this.world.weather.q = q;
   }
 
   _warmup() {
-    const p = { x: 0, y: -20, z: 0 };
-    this.fx.petals(p.x, p.y, p.z, ['#fff'], 2);
-    this.fx.sparkles(p.x, p.y, p.z, '#fff', 2);
+    // paint every species already in the garden and the common particle sprites up front
+    const p = { x: 0, y: -40, z: 0 };
+    this.fx.petals(p.x, p.y, p.z, ['#ffffff'], 1);
+    this.fx.sparkles(p.x, p.y, p.z, '#fff6c2', 1);
   }
 
   // ------------------------------------------------------------------------------------------ loop
   _loop() {
     requestAnimationFrame(() => this._loop());
-    this.clock.update();
-    const raw = this.clock.getDelta();
+    const now = performance.now();
+    const raw = Math.max(0, (now - this.last) / 1000);
+    this.last = now;
     if (this.frozen) return;
-    this.R.govern(raw, !document.hidden && this.settings.quality === 'auto' && !params.has('quality'));
+    this.stage.govern(raw, !document.hidden && this.settings.quality === 'auto' && !params.has('quality'));
     this._frame(Math.min(raw, 1 / 20));
   }
 
@@ -667,10 +659,10 @@ class Game {
     g.tick(dt);
     this.view.update(dt, this.time);
     this.world.update(dt, this.time);
-    this.fx.update(dt, this.camera, { x: this.view.cam.x, y: 0, z: this.view.cam.z });
-    this.post.update(dt);
-    this.post.render();
-    this.view.flowers.afterRender?.();
+    this.fx.update(dt, this.view.cam);
+    this.stage.updateCamera(dt);
+    tickBanks(this.frozen ? 50 : 5);
+    this.stage.render(this.time);
     this.ui.update(dt);
     this._tutorialTick();
     this.lastSave += dt;
@@ -684,14 +676,14 @@ class Game {
       skipTutorial: () => { this._finishTutorial(); },
       weather: (k) => { const w = this.garden.s.weather; w.kind = k; w.until = this.garden.s.t + 60; this._weather(k, true); },
       freeze: () => { this.frozen = true; },
-      unfreeze: () => { this.frozen = false; this.clock.update(); },
+      unfreeze: () => { this.frozen = false; this.last = performance.now(); },
       step: (ms = 16.7) => { const n = Math.max(1, Math.round(ms / (1000 / 60))); for (let i = 0; i < n; i++) this._frame(1 / 60); },
       // fast-forward the simulation (no rendering in between), then draw one frame
       sim: (seconds = 5) => {
         const n = Math.round(seconds / 0.05);
         for (let i = 0; i < n; i++) {
-          this.garden.tick(0.05); this.view.update(0.05, (this.time += 0.05)); this.world.update(0.05, this.time); this.post.update(0.05);
-          this.fx.update(0.05, this.camera, { x: 0, y: 0, z: 0 }); this._tutorialTick();
+          this.garden.tick(0.05); this.view.update(0.05, (this.time += 0.05)); this.world.update(0.05, this.time);
+          this.fx.update(0.05, this.view.cam); this.stage.updateCamera(0.05); this._tutorialTick();
         }
         this._frame(1 / 60);
       },
@@ -724,7 +716,7 @@ const TUT = [
   },
   {
     key: 'collect', text: 'A bee mixed your flowers into a <b>new seed</b>! Tap the bubble.',
-    target: (G) => { const o = [...G.view.orbs.values()][0]; return o ? { world: { x: o.g.position.x, y: o.g.position.y, z: o.g.position.z } } : null; },
+    target: (G) => { const o = [...G.view.orbs.values()].find((x) => !x.leaving); return o ? { world: { x: o.x, y: o.y, z: o.z } } : null; },
     done: (G, n) => n === 'seedCollected',
   },
   {
