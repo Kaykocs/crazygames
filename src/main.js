@@ -564,7 +564,7 @@ class Game {
     }
     const seedId = view.pickSeed(x, y);
     if (seedId != null) { g.collectSeed(seedId); down.mode = 'collect'; return true; }
-    const i = view.pickPlot(x, y);
+    const i = ui.sel >= 0 && !ui.tool ? view.pickPlant(x, y) : view.pickPlot(x, y);
     if (i < 0) return false;
     const plot = g.plots[i], pl = plot.plant;
     // plots are bought on a clean tap (released without dragging), so looking around never spends coins
@@ -671,7 +671,7 @@ class Game {
   _swipeAt(x, y, down) {
     const g = this.garden, view = this.view;
     if (down.mode === 'collect') { const seedId = view.pickSeed(x, y); if (seedId != null) g.collectSeed(seedId); return; }
-    const i = view.pickPlot(x, y);
+    const i = down.mode === 'plant' ? view.pickPlant(x, y) : view.pickPlot(x, y);
     if (i < 0 || down.done.has(i)) return;
     const pl = g.plots[i].plant;
     if (down.mode === 'plant') { if (g.plots[i].owned && !pl && this.ui.sel >= 0) { down.done.add(i); this._plantAt(i); } }
@@ -722,7 +722,7 @@ class Game {
         } else return;
       }
       pd.ghost.style.transform = `translate(${e.clientX - 24}px, ${e.clientY - 44}px)`;
-      const p = cpos(e), i = this.view.pickPlot(p.x, p.y), g = this.garden;
+      const p = cpos(e), i = this.view.pickPlant(p.x, p.y), g = this.garden;
       this.view.hoverPlot = i >= 0 && g.plots[i].owned && !g.plots[i].plant ? i : -1;
     });
     const up = (e) => {
@@ -735,7 +735,7 @@ class Game {
       this._noClickUntil = performance.now() + 350;
       this.view.hoverPlot = -1;
       if (e.type !== 'pointerup' || ui.busy) return;
-      const p = cpos(e), i = this.view.pickPlot(p.x, p.y), g = this.garden;
+      const p = cpos(e), i = this.view.pickPlant(p.x, p.y), g = this.garden;
       if (i >= 0 && g.plots[i].owned && !g.plots[i].plant) {
         const tk = this._tutKey();
         if (tk && !tk.startsWith('plant')) { this._tutWrong(); return; }

@@ -185,10 +185,20 @@ export class GardenView {
       if (Math.hypot(p.x - sx, (p.y - sy) * 1.15) < r && p.y > bestY) { bestY = p.y; best = i; }
     });
     if (best >= 0) return best;
+    return this.pickSoil(sx, sy);
+  }
+  // the bed under a screen point on the soil plane (ignores flowers standing in front of it)
+  pickSoil(sx, sy) {
     const w = this.stage.unproject(sx, sy, SOIL_Y * 0.7);
     const q = (2 / 3) * w.x, r = (-1 / 3) * w.x + (Math.sqrt(3) / 3) * w.z;
     const idx = this.garden.byKey.get(key(...axialRound(q, r)));
     return idx === undefined ? -1 : idx;
+  }
+  // where a seed goes: an empty bed under the point wins over a neighbour's flower head overlapping it
+  pickPlant(sx, sy) {
+    const g = this.garden, j = this.pickSoil(sx, sy);
+    if (j >= 0 && g.plots[j].owned && !g.plots[j].plant) return j;
+    return this.pickPlot(sx, sy);
   }
   pickSeed(sx, sy) {
     let best = null, bestD = 46;

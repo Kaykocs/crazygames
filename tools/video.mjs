@@ -135,8 +135,7 @@ const STAGE = (o) => {
   G.ui.hoverInfo(0, 0, null);
   // progression (achievements and starter quests settled silently: no toasts popping into the shots)
   s.level = o.level ?? 14; s.xp = Math.round((o.xpK ?? 0.55) * 4000); s.coins = o.coins ?? 12480;
-  { const emit = g.emit; g.emit = () => {}; s.quest.i = 999; g.checkAchievements(); g.emit = emit; s.coins = o.coins ?? 12480; }
-  document.querySelectorAll('.toast').forEach((e) => e.remove());
+
   s.upgrades.bees = 3; s.upgrades.gnome = 1; g.syncBees(); G.world.decor.setGnome(true);
   for (const id of o.decor ?? []) if (!s.decor[id]) { s.decor[id] = 1; G.world.decor.place(id, false); }
   // plots
@@ -181,6 +180,9 @@ const STAGE = (o) => {
   V._applyCam(true);
   V.drag = null; V.zips = []; V.golden.stop(); G.goldenT = 9999; G.hint = null; G.ui.tutFrame(null);
   g.combo = 0; g.comboT = -99;
+  // achievements and starter quests settled silently (after plots, decor and book are staged): no toasts in the shots
+  { const emit = g.emit; g.emit = () => {}; s.quest.i = 999; g.checkAchievements(); g.emit = emit; s.coins = o.coins ?? 12480; }
+  document.querySelectorAll('.toast').forEach((e) => e.remove());
   window.__lockCam = !!o.lockCam;
   return true;
 };
@@ -466,7 +468,14 @@ const SHOTS = {
     }
   },
 };
-const ORDER = args.shots ? String(args.shots).split(',') : ['cross', 'discover', 'combo', 'golden', 'night', 'expand', 'decorate', 'finale'];
+const ALL = ['cross', 'discover', 'combo', 'golden', 'night', 'expand', 'decorate', 'finale'];
+// --shots=a,b re-records just those clips (needs --keep'd clips of the rest); --cut only re-assembles the clips
+const ORDER = args.cut ? [] : args.shots ? String(args.shots).split(',') : ALL;
+const clipDur = (file) => {
+  const out = (() => { try { return execFileSync(FF, ['-hide_banner', '-i', file], { stdio: ['ignore', 'pipe', 'pipe'] }).toString(); } catch (e) { return String(e.stderr || ''); } })();
+  const m = /Duration: (\d+):(\d+):([\d.]+)/.exec(out);
+  return m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : 0;
+};
 
 // ------------------------------------------------------------------------------------------ main
 mkdirSync('video/clips', { recursive: true });
@@ -491,19 +500,22 @@ for (const name of only) {
   await page.evaluate((mode) => { __game.settings.quality = 'high'; __game.ui.hoverInfo = () => {}; __vt.start(); __cur.ensure(mode); }, fmt.touch ? 'touch' : 'mouse');
   const cdp = await context.newCDPSession(page);
   const rec = new Recorder(page, cdp, fmt, rng(name === 'landscape' ? 11 : 23));
-  const clips = [];
   for (const shot of ORDER) {
     const t0 = Date.now();
     const file = `video/clips/${name}-${shot}.mp4`;
     await rec.open(file);
     await SHOTS[shot](rec, fmt);
     const dur = await rec.close();
-    clips.push({ file, dur });
     console.log(`[${name}] ${shot}: ${dur.toFixed(2)} s (${rec.clipFrames} frames, ${((Date.now() - t0) / 1000).toFixed(0)} s to record)`);
   }
-  // cut: crossfade the clips together
+  // cut: crossfade every recorded clip together, in story order
+  // the final cut stays under 20 s: the land-buying shot sits out and each shot's closing hold is capped
+  // [in-point, max length] per shot: the decorate shot skips the walk to the shop so the windmill reveal fits
+  const CUT = { cross: [0, 3.3], discover: [0, 4.8], combo: [0, 2.9], golden: [0, 2.5], night: [0, 2.0], decorate: [fmt.touch ? 0.5 : 1.1, 4.0], finale: [0, 2.0] };
+  const clips = Object.keys(CUT).map((shot) => ({ shot, file: `video/clips/${name}-${shot}.mp4` })).filter((c) => existsSync(c.file))
+    .map((c) => { const [ss, len] = CUT[c.shot]; return { file: c.file, ss, dur: Math.min(clipDur(c.file) - ss, len) }; });
   const total = clips.reduce((s, c) => s + c.dur, 0) - XF * (clips.length - 1);
-  const inputs = clips.flatMap((c) => ['-i', c.file]);
+  const inputs = clips.flatMap((c) => ['-ss', c.ss.toFixed(3), '-t', c.dur.toFixed(3), '-i', c.file]);
   let filter = '', last = '[0:v]', off = 0;
   for (let i = 1; i < clips.length; i++) {
     off += clips[i - 1].dur - XF;

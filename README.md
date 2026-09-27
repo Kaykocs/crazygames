@@ -61,7 +61,10 @@ npm run sim                          # headless economy simulation (balancing)
 | 2D renderer: stage, camera, cached ground layer, depth-sorted sprites | `src/art/stage.js` |
 | Illustration code (flowers, planters, lawn, nature, built props, decor, critters, UI art) | `src/art/*.js` |
 | Garden view (planters, plants, seed bubbles, bees, picking, framing) | `src/art/garden.js` |
-| World (layout, pond, hive, decorations, ambient life), weather & light | `src/art/world.js`, `src/art/weather.js` |
+| World (layout, pond, hive, decorations), weather & light | `src/art/world.js`, `src/art/weather.js` |
+| Garden grounds: zone map, paths, borders, pond edge, woods (`plan`), ground paint (`terrain`, `stamps`), standing scenery (`scenery`) | `src/art/plan.js`, `terrain.js`, `stamps.js`, `scenery.js` |
+| Wildlife: birds, frogs, fish, rabbit, squirrel, hedgehog, insects, fluff and leaves; the golden bee | `src/art/life.js`, `src/art/golden.js` |
+| Starter quests | `src/game/quests.js` |
 | HTML UI (HUD, pouch, orders, shop, book, cards, tutorial) | `src/ui/`, `styles/game.css` |
 | CrazyGames SDK wrapper, saves, events | `src/core/` |
 | Procedural audio | `src/audio/` |
