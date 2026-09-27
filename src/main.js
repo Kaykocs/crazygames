@@ -141,6 +141,7 @@ class Game {
     const g = this.garden, s = g.s;
     this._finishTutorial();
     this.ui.cards.length = 0; this.ui._closeCard(true);
+    this.goldenT = 1e9; this._lastHint = 1e9;
     $('ui').style.display = 'none';
     audio.setMute('cover', true);
     const flowers = [
@@ -264,6 +265,7 @@ class Game {
         ui.dirty.pouch = true;
         break;
       }
+      case 'bee:visit': audio.play('buzz', { volume: 0.5, minGap: 0.35 }); break;
       case 'bee:pollinate':
         // the garden plays itself: every pollination is a soft note tuned to the flower's colour
         audio.play('flip', { step: 3 + (p.g.c1 * 3) % 10, volume: 0.35, minGap: 0.05 });
