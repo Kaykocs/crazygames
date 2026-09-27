@@ -241,7 +241,7 @@ export class UI {
   selectSeed(i) {
     this.sel = i;
     if (i >= 0) this.tool = '';
-    this.api.sound(i >= 0 ? 'pick' : 'toggle', { pitch: i >= 0 ? 1 : 0.9 });
+    this.api.sound(i >= 0 ? 'pick' : 'toggle', { pitch: i >= 0 ? 1 : 0.9, volume: i >= 0 ? 0.6 : 1 });
     this._markSel();
     this.api.onSelect?.(i);
   }

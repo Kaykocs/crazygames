@@ -246,7 +246,7 @@ class Game {
         }
         if (p.combo > 1) {
           setTimeout(() => ui.floatText(pt.x, pt.y - 46, `Combo ×${p.combo}!`, p.combo >= 4 ? 'combo hot' : 'combo'), 60);
-          audio.play('combo', { step: Math.min(10, p.combo) });
+          if ([2, 3, 5, 8, 12].includes(p.combo)) audio.play('combo', { step: Math.min(10, p.combo) });
           if (p.combo >= 3) this.fx.sparkles(view.headPos(p.i).x, view.headPos(p.i).y, view.headPos(p.i).z, '#ffe45c', 4 + p.combo * 2, 0.6);
         }
         break;
@@ -257,7 +257,7 @@ class Game {
         ui.questDone(p);
         if (g.s.quest.i <= 4) this._questHintSoon(2200);
         break;
-      case 'seed': audio.play(p.manual ? 'seedPop' : 'pop', p.manual ? {} : { step: 8, volume: 0.45 }); break;
+      case 'seed': audio.play('seedPop', p.manual ? {} : { volume: 0.6 }); break;
       case 'seedCollected': {
         const o = view.orbScreen(p.id);
         if (o) ui.flySeed(o.x, o.y, g.s.book[speciesId(p.g)] ? flowerSVG(p.g, { size: 36 }) : seedSVG(p.g, 36));
@@ -281,8 +281,8 @@ class Game {
         if (p.g.mut === M.RAINBOW && !g.s.stats.rainbowSeen) { g.s.stats.rainbowSeen = 1; sdk.happytime(); }
         break;
       }
-      case 'water': audio.play('whoosh', { volume: 0.7 }); break;
-      case 'dig': audio.play('drop', { pitch: 0.7 }); ui.dirty.pouch = true; break;
+      case 'water': audio.play('water'); break;
+      case 'dig': audio.play('dig'); ui.dirty.pouch = true; break;
       case 'plot': audio.play('unlock'); ui.toast(`${icon('check')} New plot!`, 'good'); this._layoutSoon(); break;
       case 'upgrade': {
         audio.play('reward');
@@ -310,7 +310,7 @@ class Game {
         audio.play('invalid');
         ui.toast(`Seed pouch is full — plant or sell some seeds`, 'warn');
         break;
-      case 'order:new': ui.dirty.orders = true; audio.play('button'); break;
+      case 'order:new': ui.dirty.orders = true; audio.play('tutStep', { volume: 0.7 }); break;
       case 'order:leave': ui.dirty.orders = true; break;
       case 'order:progress': ui.dirty.orders = true; break;
       case 'order:done': {
@@ -322,7 +322,7 @@ class Game {
       }
       case 'special': ui.dirty.orders = true; break;
       case 'level': {
-        audio.play('win');
+        audio.play('levelUp');
         this.fx.confetti({ x: view.cam.x, y: 0, z: view.cam.z }, 70);
         const unlockList = [
           ...p.unlocks.map((u) => `${icon('check', 18)} ${u.text}`),
@@ -349,7 +349,7 @@ class Game {
       case 'collection': {
         const what = p.kind === 'color' ? `every ${COLORS[p.index].name} flower` : `every ${SHAPES[p.index].name}`;
         ui.showCard({ kicker: 'Collection!', hero: icon('trophy', 120), title: `You grew ${what}!`, reward: `${icon('coin')} +${fmt(p.reward)}` });
-        audio.play('win');
+        audio.play('levelUp');
         sdk.happytime();
         break;
       }
@@ -381,7 +381,7 @@ class Game {
   _discover(p) {
     const g = p.g, ui = this.ui;
     const tiers = COLORS[g.c1].tier + SHAPES[g.shape].tier;
-    audio.play('combo', { step: Math.min(4, tiers) });
+    audio.play('discover', { step: Math.min(4, tiers) });
     this.ui.bookBtn.classList.add('has-dot');
     if (tiers <= 2 && !g.pattern) {
       const i = this.garden.plots.findIndex((pl) => pl.plant && speciesId(pl.plant.g) === p.id);
