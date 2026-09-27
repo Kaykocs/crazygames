@@ -19,7 +19,7 @@ export const beeCount = (u) => 1 + (u.bees || 0);
 export const beeSpeed = (u) => 1 + 0.12 * (u.wings || 0);
 export const growMult = (u) => 1 / (1 + 0.12 * (u.fert || 0));
 export const sellMult = (u) => 1 + 0.2 * (u.market || 0);
-export const pouchSize = (u) => 8 + 3 * (u.pouch || 0);          // distinct seed kinds (identical seeds stack)
+export const pouchSize = (u) => 12 + 3 * (u.pouch || 0);         // distinct seed kinds (identical seeds stack)
 export const canCharges = (u) => 3 + (u.can || 0);
 export const canRefill = (u) => 18 - 2 * (u.can || 0);      // seconds per charge
 export const gnomeInterval = (u) => (u.gnome ? 14 - 2 * u.gnome : 0);

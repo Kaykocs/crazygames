@@ -51,7 +51,7 @@ Dewy (rain) ×2, Moonlit (night) ×3, Golden (golden hour) ×5, Rainbow (rainbow
 - Grow time = 10 s × (tierC + tierS − 1)^1.25; regrow after harvest = 55 % of that. Rain ×2 speed.
 - Bees: one pollination per bee every ~7 s (flight time) when two adjacent blooms exist.
 - Plots: start with 7 (radius 1 honeycomb), buy outward to 37. Cost 60 × 1.45^n.
-- Seed pouch: 8 slots, upgradable to 30.
+- Seed pouch: 12 seed kinds (identical seeds stack), +3 per Seed Pouch upgrade up to 36.
 
 ## Progression
 - Gardener level from XP (harvest value, discoveries, orders). Levels unlock upgrades, weather, visitors.

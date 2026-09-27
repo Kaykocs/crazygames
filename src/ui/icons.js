@@ -1,7 +1,8 @@
 // Inline SVG art for the UI: a procedural flower icon for every genotype, visitor portraits and UI icons.
-import { COLORS } from '../game/genetics.js';
+import { COLORS, secondColor } from '../game/genetics.js';
 import { flowerIconURL, seedIconURL } from '../art/flowers.js';
 import { iconURL, hasPainted, visitorURL } from '../art/uiart.js';
+import { ink, rgba } from '../art/color.js';
 import { decorThumbURL } from '../art/world.js';
 
 let uid = 0;
@@ -56,6 +57,21 @@ export function flowerSVG(g, opts = {}) {
 // seed icon for a species not yet discovered
 export function seedSVG(g, size = 40) {
   return `<img class="flower-ico seed-ico" src="${seedIconURL(g, size)}" width="${size}" height="${size}" alt="" draggable="false">`;
+}
+
+// Corner badge for a patterned variant: the pattern as a tiny glyph (split, stripes, dots, edge) in the flower's
+// second colour over its main colour, so variants that look alike at chip size are easy to tell apart.
+const PAT_GLYPH = {
+  1: (a, b, e) => `<path d="M20 0V20H0Z" fill="${b}"/><path d="M21-1L-1 21" stroke="${e}" stroke-width="1.1"/>`,
+  2: (a, b, e) => `<path d="M-3 17L17-3M3 23L23 3" stroke="${e}" stroke-width="6.2"/><path d="M-3 17L17-3M3 23L23 3" stroke="${b}" stroke-width="4.4"/>`,
+  3: (a, b, e) => [[6.2, 6.6, 2.9], [14, 8.2, 2.5], [8.4, 14.2, 2.7]].map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${b}" stroke="${e}" stroke-width="0.9"/>`).join(''),
+  4: (a, b, e) => `<rect width="20" height="20" fill="${b}"/><circle cx="10" cy="10" r="4.9" fill="${a}" stroke="${e}" stroke-width="0.9"/>`,
+};
+export function patternBadge(g, cls = 'pat') {
+  const glyph = PAT_GLYPH[g.pattern];
+  if (!glyph) return '';
+  const a = COLORS[g.c1].hex, b = COLORS[g.c2 ?? secondColor(g.c1)].hex;
+  return `<span class="${cls}" aria-hidden="true"><svg viewBox="0 0 20 20"><rect width="20" height="20" fill="${a}"/>${glyph(a, b, rgba(ink(b, 0.5), 0.6))}<ellipse cx="7.5" cy="4.6" rx="5" ry="2.4" fill="#fff" opacity=".3"/></svg></span>`;
 }
 
 // ------------------------------------------------------------------------------------------ visitors

@@ -88,7 +88,7 @@ function petalFill(ctx, g, col, L, k, idx) {
 // ------------------------------------------------------------------------------------------ one petal
 // Paints a petal: fill, fold shading, veins, pattern overlay, highlight and ink outline.
 function paintPetal(ctx, cmds, T, fill, g, col, o) {
-  const { lw, outline, fold = 0.22, veins = 1, idx = 0, sil = false, R } = o;
+  const { lw, outline, fold = 0.22, veins = 1, idx = 0, sil = false, R, patK = 1 } = o;
   ctx.beginPath(); trace(ctx, cmds, T);
   ctx.fillStyle = fill; ctx.fill();
   if (!sil) {
@@ -103,16 +103,16 @@ function paintPetal(ctx, cmds, T, fill, g, col, o) {
     // pattern overlays
     const c2 = col.c2;
     if (g.pattern === 2 && g.mut !== 4) {                       // stripe along the middle
-      ctx.strokeStyle = rgba(c2, 0.95); ctx.lineWidth = o.stripeW;
+      ctx.strokeStyle = rgba(c2, 0.95); ctx.lineWidth = o.stripeW * patK;
       ctx.beginPath(); const s0 = T(0, -0.08), s1 = T(0, -0.52), s2 = T(0, -0.9); ctx.moveTo(s0[0], s0[1]); ctx.quadraticCurveTo(s1[0], s1[1], s2[0], s2[1]); ctx.stroke();
-      ctx.strokeStyle = rgba(shade(c2, 0.4), 0.6); ctx.lineWidth = o.stripeW * 0.35; ctx.stroke();
+      ctx.strokeStyle = rgba(shade(c2, 0.4), 0.6); ctx.lineWidth = o.stripeW * 0.35 * patK; ctx.stroke();
     } else if (g.pattern === 3 && g.mut !== 4) {                // freckles
       ctx.fillStyle = c2;
       const n = o.spots ?? 3;
       for (let i = 0; i < n; i++) {
         const t = 0.3 + 0.55 * ((i + 0.5) / n), xo = (R() - 0.5) * 0.36 * o.spotSpread;
         const p = T(xo, -t);
-        ctx.beginPath(); ctx.arc(p[0], p[1], o.spotR * (0.7 + R() * 0.5), 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(p[0], p[1], o.spotR * patK * (0.7 + R() * 0.5), 0, TAU); ctx.fill();
       }
     }
     // veins fanning from the base
@@ -216,7 +216,7 @@ export function paintHead(ctx, g, opts = {}) {
   }
   ctx.scale(1, tilt);
   const ow = lw;
-  const common = { lw: ow, outline, sil, R, stripeW: 0.1, spotR: 0.05, spotSpread: 1 };
+  const common = { lw: ow, outline, sil, R, stripeW: 0.1, spotR: 0.05, spotSpread: 1, patK: opts.patK || 1 };
 
   // draw back → front so lower petals overlap the ones behind them (reads as a face tilted toward us)
   const ring = (n, cmds, w, l, r0, rot, opt = {}) => {
@@ -299,7 +299,7 @@ export function paintHead(ctx, g, opts = {}) {
 
 // Tulip: a cup seen from the side. Painted in head units, base of the cup at y = 0.45.
 export function paintTulip(ctx, g, opts = {}) {
-  const sil = !!opts.sil, lw = opts.lw ?? 0.045;
+  const sil = !!opts.sil, lw = opts.lw ?? 0.045, patK = opts.patK || 1;
   const col = sil ? { c1: '#cbbfa8', c2: '#cbbfa8' } : flowerColors(g);
   const mut = sil ? 0 : g.mut || 0;
   const pal = (i) => (mut === 4 ? RAINBOW[(i * 2) % RAINBOW.length] : mut === 3 ? GOLD[1] : mut === 2 ? mix(col.c1, '#bcd8ff', 0.28) : col.c1);
@@ -320,8 +320,8 @@ export function paintTulip(ctx, g, opts = {}) {
     if (!sil) {
       ctx.save(); ctx.clip();
       if (dark) { ctx.fillStyle = 'rgba(40,10,60,0.22)'; ctx.fillRect(-2, -2, 4, 4); }
-      if (g.pattern === 2) { ctx.strokeStyle = rgba(col.c2, 0.9); ctx.lineWidth = 0.09; ctx.beginPath(); const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length; ctx.moveTo(cx * 0.8, 0.4); ctx.quadraticCurveTo(cx * 1.1, -0.2, cx * 0.9, -0.8); ctx.stroke(); }
-      if (g.pattern === 3) { ctx.fillStyle = col.c2; for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(pts[1][0] * 0.6 + (R() - 0.5) * 0.3, -0.5 + R() * 0.7, 0.045 + R() * 0.03, 0, TAU); ctx.fill(); } }
+      if (g.pattern === 2) { ctx.strokeStyle = rgba(col.c2, 0.9); ctx.lineWidth = 0.09 * patK; ctx.beginPath(); const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length; ctx.moveTo(cx * 0.8, 0.4); ctx.quadraticCurveTo(cx * 1.1, -0.2, cx * 0.9, -0.8); ctx.stroke(); }
+      if (g.pattern === 3) { ctx.fillStyle = col.c2; for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(pts[1][0] * 0.6 + (R() - 0.5) * 0.3, -0.5 + R() * 0.7, (0.045 + R() * 0.03) * patK, 0, TAU); ctx.fill(); } }
       // side sheen
       const sh = ctx.createLinearGradient(-0.7, 0, 0.7, 0);
       sh.addColorStop(0, 'rgba(255,255,255,0.22)'); sh.addColorStop(0.35, 'rgba(255,255,255,0)'); sh.addColorStop(0.7, 'rgba(40,10,60,0)'); sh.addColorStop(1, 'rgba(40,10,60,0.25)');
@@ -358,7 +358,7 @@ export function paintLotus(ctx, g, opts = {}) {
   const outline = sil ? '#a3957d' : mut === 3 ? '#9a5f08' : ink(col.c1, lum(col.c1) > 0.85 ? 0.5 : 0.62);
   const R = rng(11 + g.c1 * 7 + (g.pattern || 0));
   if (mut === 2 || mut === 3 || mut === 4) softEllipse(ctx, 0, -0.15, 1.45, 1.25, mut === 2 ? '#a8d4ff' : mut === 3 ? '#ffe27a' : '#ffffff', 0.5, 0.3);
-  const common = { lw, outline, sil, R, stripeW: 0.1, spotR: 0.05, spotSpread: 1, veins: 1 };
+  const common = { lw, outline, sil, R, stripeW: 0.1, spotR: 0.05, spotSpread: 1, veins: 1, patK: opts.patK || 1 };
   const base = [0, 0.42];
   const petal = (a, len, wid, i, fold, lift = 0) => {
     // petal axis from the cup base, angle a from vertical; lift raises the base for inner rows
@@ -514,7 +514,9 @@ const icons = new Map();
 const DPR = () => Math.min(2, Math.max(1, (typeof devicePixelRatio === 'number' ? devicePixelRatio : 1)));
 export function flowerIconURL(g, size = 48, { sil = false } = {}) {
   const px = Math.round(size * DPR());
-  const key = `${sil ? 's' : geneKey(g)}.${sil ? g.shape : ''}.${px}`;
+  // small icons (pouch chips, toasts, orders) get bolder stripes and spots so the pattern still reads
+  const patK = size <= 56 ? 1.8 : 1;
+  const key = `${sil ? 's' : geneKey(g)}.${sil ? g.shape : ''}.${px}.${patK}`;
   let url = icons.get(key);
   if (url) return url;
   const c = makeCanvas(px, px);
@@ -525,39 +527,82 @@ export function flowerIconURL(g, size = 48, { sil = false } = {}) {
   ctx.translate(px / 2, px / 2 + (g.shape === 2 ? px * 0.04 : 0));
   ctx.scale(unit, unit);
   const lw = Math.max(0.05, 1.3 / unit);
-  if (g.shape === 2) paintTulip(ctx, g, { sil, lw });
-  else if (g.shape === 6) { ctx.translate(0, 0.1); paintLotus(ctx, g, { sil, lw }); }
-  else paintHead(ctx, g, { sil, lw, tilt: 1 });
+  if (g.shape === 2) paintTulip(ctx, g, { sil, lw, patK });
+  else if (g.shape === 6) { ctx.translate(0, 0.1); paintLotus(ctx, g, { sil, lw, patK }); }
+  else paintHead(ctx, g, { sil, lw, tilt: 1, patK });
   url = c.toDataURL('image/png');
   icons.set(key, url);
   return url;
 }
 
-// Seed icon for species not yet in the Flower Book: a glossy seed in the flower's colours with a sparkle.
+// Seed outlines, one per flower shape (tip up, about ±0.72 wide and -0.98..0.92 tall), so two mystery seeds of
+// the same colour still look different: almond, slim achene, bulb, kite, heart, crinkled disc, round nut, comma.
+const SEED_OUTLINE = [
+  (c) => { c.moveTo(0, -0.95); c.bezierCurveTo(0.72, -0.62, 0.7, 0.72, 0, 0.9); c.bezierCurveTo(-0.7, 0.72, -0.72, -0.62, 0, -0.95); },
+  (c) => { c.moveTo(0, -0.98); c.bezierCurveTo(0.5, -0.62, 0.44, 0.74, 0, 0.92); c.bezierCurveTo(-0.44, 0.74, -0.5, -0.62, 0, -0.98); },
+  (c) => { c.moveTo(0, -0.98); c.bezierCurveTo(0.1, -0.6, 0.78, -0.36, 0.76, 0.24); c.bezierCurveTo(0.74, 0.7, 0.38, 0.84, 0, 0.84); c.bezierCurveTo(-0.38, 0.84, -0.74, 0.7, -0.76, 0.24); c.bezierCurveTo(-0.78, -0.36, -0.1, -0.6, 0, -0.98); },
+  (c) => { c.moveTo(0, -0.98); c.lineTo(0.62, -0.12); c.quadraticCurveTo(0.68, -0.02, 0.6, 0.08); c.lineTo(0, 0.92); c.lineTo(-0.6, 0.08); c.quadraticCurveTo(-0.68, -0.02, -0.62, -0.12); },
+  (c) => { c.moveTo(0, 0.9); c.bezierCurveTo(-0.34, 0.6, -0.82, 0.2, -0.76, -0.32); c.bezierCurveTo(-0.7, -0.78, -0.2, -0.86, 0, -0.5); c.bezierCurveTo(0.2, -0.86, 0.7, -0.78, 0.76, -0.32); c.bezierCurveTo(0.82, 0.2, 0.34, 0.6, 0, 0.9); },
+  (c) => { for (let i = 0; i <= 64; i++) { const a = (i / 64) * TAU, r = 1 + 0.08 * Math.cos(a * 9); const x = Math.sin(a) * 0.7 * r, y = -Math.cos(a) * 0.86 * r; if (i) c.lineTo(x, y); else c.moveTo(x, y); } },
+  (c) => { c.moveTo(0, -0.96); c.quadraticCurveTo(0.12, -0.8, 0.3, -0.72); c.bezierCurveTo(0.9, -0.5, 0.86, 0.9, 0, 0.9); c.bezierCurveTo(-0.86, 0.9, -0.9, -0.5, -0.3, -0.72); c.quadraticCurveTo(-0.12, -0.8, 0, -0.96); },
+  (c) => { c.moveTo(0.1, -0.96); c.bezierCurveTo(0.74, -0.88, 0.84, -0.06, 0.46, 0.46); c.bezierCurveTo(0.2, 0.84, -0.44, 0.96, -0.64, 0.56); c.bezierCurveTo(-0.8, 0.22, -0.36, 0.06, -0.2, -0.2); c.bezierCurveTo(-0.06, -0.44, -0.26, -0.8, 0.1, -0.96); },
+];
+
+// Seed icon for species not yet in the Flower Book: a glossy seed in the flower's colour whose outline hints at
+// the shape and whose coat shows the pattern in the second colour (two-tone base, stripes, speckles, tipped cap).
 export function seedIconURL(g, size = 40) {
   const px = Math.round(size * DPR());
-  const key = `seed.${g.c1}.${g.c2 ?? g.c1}.${g.pattern || 0}.${px}`;
+  const pat = g.pattern || 0, shape = g.shape || 0;
+  const key = `seed.${g.c1}.${pat ? g.c2 ?? g.c1 : ''}.${shape}.${pat}.${px}`;
   let url = icons.get(key);
   if (url) return url;
   const c = makeCanvas(px, px);
   const ctx = c.getContext('2d');
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  const u = px / 2.4;
+  const u = px / 2.25;
   ctx.translate(px / 2, px / 2); ctx.scale(u, u);
   const lw = Math.max(0.07, 1.4 / u);
   const c1 = COLORS[g.c1].hex, c2 = COLORS[g.c2 ?? g.c1].hex;
-  softEllipse(ctx, 0.08, 0.86, 0.62, 0.16, '#3a2a10', 0.35);
-  ctx.save(); ctx.rotate(0.3);
-  ctx.beginPath(); ctx.moveTo(0, -0.95); ctx.bezierCurveTo(0.72, -0.62, 0.7, 0.72, 0, 0.9); ctx.bezierCurveTo(-0.7, 0.72, -0.72, -0.62, 0, -0.95); ctx.closePath();
+  const path = () => { ctx.beginPath(); SEED_OUTLINE[shape](ctx); ctx.closePath(); };
+  softEllipse(ctx, 0.08, 0.9, 0.62, 0.16, '#3a2a10', 0.35);
+  ctx.save(); ctx.rotate(shape === 7 ? 0.1 : 0.3);
+  path();
   const gr = ctx.createLinearGradient(-0.6, -0.9, 0.6, 0.9);
-  gr.addColorStop(0, shade(c1, 0.35)); gr.addColorStop(0.55, c1); gr.addColorStop(1, g.pattern ? c2 : shade(c1, -0.35));
-  ctx.fillStyle = gr; ctx.fill(); ctx.strokeStyle = ink(c1, 0.62); ctx.lineWidth = lw * 1.3; ctx.stroke();
-  ctx.strokeStyle = rgba(ink(c1, 0.5), 0.55); ctx.lineWidth = lw;
-  ctx.beginPath(); ctx.moveTo(0, -0.78); ctx.quadraticCurveTo(0.2, 0, 0, 0.75); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.beginPath(); ctx.ellipse(-0.26, -0.3, 0.12, 0.3, 0, 0, TAU); ctx.fill();
+  gr.addColorStop(0, shade(c1, 0.35)); gr.addColorStop(0.55, c1); gr.addColorStop(1, shade(c1, -0.35));
+  ctx.fillStyle = gr; ctx.fill();
+  ctx.save(); ctx.clip();
+  const edge = rgba(ink(c2, 0.45), 0.45);
+  if (pat === 1) {                    // two-tone: the lower half in the second colour
+    ctx.beginPath(); ctx.moveTo(-1, 0.16); ctx.quadraticCurveTo(0, -0.04, 1, 0.1); ctx.lineTo(1, 1.2); ctx.lineTo(-1, 1.2); ctx.closePath();
+    const g2 = ctx.createLinearGradient(0, 0, 0.4, 0.9); g2.addColorStop(0, shade(c2, 0.1)); g2.addColorStop(1, shade(c2, -0.3));
+    ctx.fillStyle = g2; ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = lw * 0.8; ctx.stroke();
+  } else if (pat === 2) {             // stripes along the seed
+    ctx.strokeStyle = c2; ctx.lineWidth = 0.15;
+    for (const x of [-0.38, 0, 0.38]) { ctx.beginPath(); ctx.moveTo(x * 0.55, -1); ctx.quadraticCurveTo(x * 1.25, 0, x * 0.6, 1); ctx.stroke(); }
+  } else if (pat === 3) {             // speckles
+    for (const [x, y, r] of [[-0.26, -0.42, 0.12], [0.2, -0.16, 0.14], [-0.28, 0.14, 0.13], [0.24, 0.4, 0.12], [-0.04, 0.62, 0.1], [0.06, -0.66, 0.08]]) {
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = c2; ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = lw * 0.6; ctx.stroke();
+    }
+  } else if (pat === 4) {             // tipped: the top of the seed in the second colour
+    ctx.beginPath(); ctx.moveTo(-1, -0.1); ctx.quadraticCurveTo(0, 0.04, 1, -0.2); ctx.lineTo(1, -1.2); ctx.lineTo(-1, -1.2); ctx.closePath();
+    ctx.fillStyle = shade(c2, 0.05); ctx.fill(); ctx.strokeStyle = edge; ctx.lineWidth = lw * 0.8; ctx.stroke();
+  }
+  // seam, and papery bulb lines on the tulip bulb
+  ctx.strokeStyle = rgba(ink(c1, 0.5), 0.5); ctx.lineWidth = lw;
+  ctx.beginPath();
+  if (shape === 2) { ctx.moveTo(-0.06, -0.8); ctx.quadraticCurveTo(-0.5, 0, -0.3, 0.8); ctx.moveTo(0.06, -0.8); ctx.quadraticCurveTo(0.5, 0, 0.3, 0.8); }
+  else if (shape !== 5 && shape !== 7) { ctx.moveTo(0, -0.78); ctx.quadraticCurveTo(0.2, 0, 0, 0.75); }
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.beginPath(); ctx.ellipse(-0.26, -0.3, 0.1, 0.26, 0.1, 0, TAU); ctx.fill();
   ctx.restore();
-  sparkle(ctx, 0.72, -0.72, 0.28, '#fff6c4');
-  sparkle(ctx, -0.8, 0.35, 0.14, '#ffffff');
+  path(); ctx.strokeStyle = ink(c1, 0.62); ctx.lineWidth = lw * 1.3; ctx.stroke();
+  if (shape === 2) {                  // little roots under the bulb
+    ctx.strokeStyle = '#8a6a48'; ctx.lineWidth = lw * 0.9;
+    ctx.beginPath(); for (const x of [-0.22, 0, 0.22]) { ctx.moveTo(x, 0.84); ctx.quadraticCurveTo(x * 1.3, 0.94, x * 1.5, 1.04); } ctx.stroke();
+  }
+  ctx.restore();
+  sparkle(ctx, 0.74, -0.74, 0.26, '#fff6c4');
+  sparkle(ctx, -0.82, 0.36, 0.13, '#ffffff');
   url = c.toDataURL('image/png');
   icons.set(key, url);
   return url;
