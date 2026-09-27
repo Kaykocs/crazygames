@@ -74,7 +74,7 @@ export const GRADES = {
   clear: { sat: 1.06, vib: 0.18, contrast: 1.06, tint: [1, 1, 1], lift: 0, exposure: 1 },
   rain: { sat: 0.9, vib: 0.1, contrast: 1.02, tint: [0.93, 0.97, 1.04], lift: 0.004, exposure: 0.92 },
   golden: { sat: 1.12, vib: 0.2, contrast: 1.07, tint: [1.07, 1.0, 0.88], lift: 0.002, exposure: 1.02 },
-  night: { sat: 0.92, vib: 0.15, contrast: 1.08, tint: [0.82, 0.9, 1.12], lift: 0.006, exposure: 1.0 },
+  night: { sat: 0.9, vib: 0.18, contrast: 1.1, tint: [0.78, 0.86, 1.14], lift: 0.008, exposure: 0.86 },
   rainbow: { sat: 1.14, vib: 0.24, contrast: 1.05, tint: [1.0, 1.0, 1.02], lift: 0, exposure: 1.04 },
 };
 

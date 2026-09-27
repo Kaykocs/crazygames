@@ -58,7 +58,10 @@ for (const name of only) {
     // a mature garden without the tutorial, for judging the full-quality look
     await page.evaluate(() => {
       const G = __game, g = G.garden;
-      G.debug.skipTutorial(); G.debug.coins(80000); G.debug.level(9);
+      G.debug.skipTutorial(); G.debug.coins(30000000); G.debug.level(9);
+      for (const id of ['birdbath', 'bench', 'arch', 'lanterns', 'windmill', 'fountain', 'gazebo', 'greenhouse', 'statue', 'rainbow']) g.buyDecor(id);
+      g.s.upgrades.gnome = 1; G.world.decor.setGnome(true);
+      g.s.coins = 9000;
       for (let i = 0; i < 16; i++) { const j = g.plots.findIndex((p, k) => !p.owned && g.canBuyPlot(k)); if (j >= 0) g.buyPlot(j); }
       const genes = [[0, 0, 0], [1, 1, 0], [2, 2, 0], [6, 3, 1], [7, 4, 0], [8, 5, 2], [4, 6, 0], [5, 7, 0], [12, 0, 3], [13, 2, 0], [14, 3, 0], [11, 1, 4], [10, 4, 0], [9, 5, 0], [15, 6, 1], [3, 7, 0], [7, 3, 2], [6, 0, 0], [2, 1, 0], [0, 5, 1], [1, 4, 3], [12, 6, 0], [7, 0, 0]];
       let n = 0;

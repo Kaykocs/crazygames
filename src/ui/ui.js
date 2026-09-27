@@ -346,6 +346,14 @@ export class UI {
     for (const [i, t] of this.plotTags) if (!seen.has(i)) { t.remove(); this.plotTags.delete(i); }
   }
 
+  hoverInfo(x, y, html) {
+    if (!this.hoverEl) { this.hoverEl = el('div', 'hover-tip'); this.labels.appendChild(this.hoverEl); }
+    if (!html) { this.hoverEl.style.display = 'none'; return; }
+    if (this._hoverHtml !== html) { this._hoverHtml = html; this.hoverEl.innerHTML = html; }
+    this.hoverEl.style.display = '';
+    this.hoverEl.style.left = `${x}px`; this.hoverEl.style.top = `${y}px`;
+  }
+
   floatText(x, y, text, cls = '') {
     const f = el('div', `float-txt ${cls}`, text);
     f.style.left = `${x}px`; f.style.top = `${y}px`;

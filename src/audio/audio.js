@@ -91,7 +91,57 @@ class AudioEngine {
     this.musicOn = !!on;
     if (this.ctx) this._ramp(this.musicBus.gain, on ? 0.55 : 0, 0.4);
   }
-  startMusic() { if (this.music) this.music.start(); }
+  startMusic() { if (this.music) this.music.start(); this._startAmbience(); }
+
+  // ---- ambience: birds by day, crickets at night, rain bed. Routed through the SFX bus, very quiet. ----
+  setAmbience(mode) { this.ambMode = mode; if (this.ctx) this._applyAmbienceBeds(); }
+  _startAmbience() {
+    if (!this.ctx || this._ambTimer) return;
+    this.ambOut = this.ctx.createGain(); this.ambOut.gain.value = 0.9; this.ambOut.connect(this.sfxBus);
+    const bed = (type, f, q) => {
+      const src = this.ctx.createBufferSource(), flt = this.ctx.createBiquadFilter(), g = this.ctx.createGain();
+      src.buffer = this.noise; src.loop = true; flt.type = type; flt.frequency.value = f; flt.Q.value = q; g.gain.value = 0;
+      src.connect(flt); flt.connect(g); g.connect(this.ambOut); src.start();
+      return g;
+    };
+    this.windBed = bed('lowpass', 420, 0.5);
+    this.rainBed = bed('bandpass', 2400, 0.6);
+    this._applyAmbienceBeds();
+    this._ambNext = this.ctx.currentTime + 1.5;
+    this._ambTimer = setInterval(() => this._ambTick(), 250);
+  }
+  _applyAmbienceBeds() {
+    if (!this.windBed) return;
+    const m = this.ambMode || 'day';
+    this._ramp(this.windBed.gain, m === 'rain' ? 0.02 : 0.035, 1.5);
+    this._ramp(this.rainBed.gain, m === 'rain' ? 0.11 : 0, 2);
+  }
+  _ambTick() {
+    const c = this.ctx;
+    if (!c || c.state !== 'running' || this.mutes.size || !this.sfxOn) return;
+    const t = c.currentTime;
+    if (t < this._ambNext) return;
+    const m = this.ambMode || 'day';
+    const out = this.ambOut;
+    if (m === 'day' || m === 'golden' || m === 'rainbow') {
+      // a little songbird: 2-5 quick chirps
+      const n = 2 + Math.floor(Math.random() * 4), base = 2600 + Math.random() * 1600, pan = c.createStereoPanner();
+      pan.pan.value = Math.random() * 1.6 - 0.8; pan.connect(out);
+      for (let i = 0; i < n; i++) {
+        const tt = t + i * (0.09 + Math.random() * 0.05), f = base * (1 + (Math.random() - 0.5) * 0.25);
+        this.osc(pan, tt, { type: 'sine', f, f2: f * (1.25 + Math.random() * 0.3), glide: 0.05, a: 0.004, d: 0.06, v: 0.035 });
+      }
+      this._ambNext = t + 2.5 + Math.random() * 5;
+    } else if (m === 'night') {
+      // crickets
+      const pan = c.createStereoPanner(); pan.pan.value = Math.random() * 1.4 - 0.7; pan.connect(out);
+      for (let i = 0; i < 3; i++) this.osc(pan, t + i * 0.055, { type: 'sine', f: 4300 + Math.random() * 200, a: 0.003, d: 0.035, v: 0.02 });
+      this._ambNext = t + 0.5 + Math.random() * 0.9;
+    } else if (m === 'rain') {
+      this.hiss(out, t, { type: 'highpass', f: 3500, q: 0.7, a: 0.001, d: 0.02, v: 0.03 });
+      this._ambNext = t + 0.05 + Math.random() * 0.25;
+    }
+  }
   setMusicMood(m) { if (this.music) this.music.setMood(m); }
 
   // one-shot SFX. opts: { volume, pitch, step (musical step for pitched sounds), delay }

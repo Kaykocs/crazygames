@@ -52,8 +52,8 @@ const SHAPE_DEFS = [
 ];
 
 // one petal in its own frame, as position/normal/uv arrays (appended to the given arrays)
-function buildPetal(def, L, out, angle, pitchClosed, pitchOpen, r0) {
-  const NU = 7, NV = 9;
+function buildPetal(def, L, out, angle, pitchClosed, pitchOpen, r0, vary = 1) {
+  const NU = 9, NV = 11;
   const base = out.pos.length / 3;
   const W = L.wid;
   const grid = [];
@@ -61,15 +61,16 @@ function buildPetal(def, L, out, angle, pitchClosed, pitchOpen, r0) {
     const v = j / (NV - 1);
     for (let i = 0; i < NU; i++) {
       const u = (i / (NU - 1)) * 2 - 1;                // -1..1 across
-      let hw = W * def.width(v);
+      let hw = W * def.width(v) * (0.94 + 0.06 * vary);
       if (def.point && v > 0.85) hw *= 1 - (v - 0.85) / 0.15 * 0.6;
       hw = Math.max(hw, W * 0.02);        // never fully collapse a row: zero width → zero normals → NaN lighting
-      let z = r0 + v * L.len;
+      let z = r0 + v * L.len * vary;
       // heart notch: pull the middle of the tip back
       if (def.notch) z -= L.len * def.notch * Math.exp(-(u * 2.4) * (u * 2.4)) * Math.max(0, (v - 0.55) / 0.45);
       let x = u * hw;
       if (def.swirl) x += def.swirl * Math.pow(v, 1.6) * L.len * 2.2 + (u > 0 ? 0.2 : 0) * hw * v;
       let y = def.cup * u * u * hw + def.bend * v * v * L.len * 2;
+      y += 0.018 * Math.sin(u * 2.2 + vary * 9) * v;              // a little hand-made wobble per petal
       if (def.ruffle) y += def.ruffle * Math.sin(u * 7 + v * 9) * v;
       if (def.twist) { const a = def.twist * v * u * 0.6; y += a * hw; }
       grid.push([x, y, z, u, v]);
@@ -106,8 +107,9 @@ function headGeometry(def) {
   const out = { pos: [], nor: [], puv: [], pet: [], idx: [] };
   for (const L of def.layers) {
     for (let k = 0; k < L.n; k++) {
-      const angle = L.rot + (k / L.n) * Math.PI * 2;
-      buildPetal(def, L, out, angle, L.closed, L.open, L.r0);
+      const angle = L.rot + (k / L.n) * Math.PI * 2 + Math.sin(k * 12.9898 + L.n) * 0.05;
+      const vary = 0.92 + 0.16 * (0.5 + 0.5 * Math.sin(k * 78.233 + L.len * 40));
+      buildPetal(def, L, out, angle, L.closed, L.open, L.r0, vary);
     }
   }
   const g = new THREE.BufferGeometry();
@@ -186,12 +188,18 @@ function headMaterial() {
           float on = step(0.4, fl_hash(cell + 11.3));
           fl_c = mix(fl_c, vCol2, on * smoothstep(0.27, 0.19, length(f)) * smoothstep(0.08, 0.28, fl_v));
         } else if (fl_pat > 3.5) fl_c = mix(fl_c, vCol2, smoothstep(0.66, 0.88, fl_v));
-        // depth toward the centre, a soft vein, lighter tips
-        fl_c *= mix(0.66, 1.0, smoothstep(0.0, 0.38, fl_v));
-        fl_c *= 1.0 - 0.1 * smoothstep(0.06, 0.0, abs(fl_u)) * (1.0 - fl_v);
-        fl_c = mix(fl_c, fl_c * 1.12 + 0.03, smoothstep(0.6, 1.0, fl_v));
-        float fl_emis = 0.07;
-        float fl_rough = 0.55, fl_metal = 0.0;
+        // depth toward the centre (richer, a touch warmer), lighter airy tips
+        vec3 fl_deep = fl_c * fl_c * 1.1;
+        fl_c = mix(fl_deep, fl_c, smoothstep(0.0, 0.45, fl_v));
+        fl_c = mix(fl_c, mix(fl_c, vec3(1.0), 0.22) * 1.05, smoothstep(0.55, 1.0, fl_v));
+        // fine veins fanning out from the base
+        float fl_vl = abs(fract(fl_u * 2.5 + fl_v * fl_u * 0.6) - 0.5);
+        float fl_vein = smoothstep(0.06, 0.0, fl_vl) * smoothstep(0.95, 0.15, fl_v) * 0.12;
+        fl_c *= 1.0 - fl_vein - 0.12 * smoothstep(0.08, 0.0, abs(fl_u)) * (1.0 - fl_v);
+        // soft darker rim so overlapping petals read
+        fl_c *= 1.0 - 0.1 * smoothstep(0.78, 1.0, abs(fl_u));
+        float fl_emis = 0.1;
+        float fl_rough = 0.48, fl_metal = 0.0;
         vec3 fl_glow = vec3(0.0);
         if (fl_mut > 0.5 && fl_mut < 1.5) {            // dewy: glossy with droplets
           vec2 dp = vec2(fl_u * 4.0, fl_v * 7.0) + fl_seed * 13.0;
@@ -215,26 +223,83 @@ function headMaterial() {
         diffuseColor.rgb = fl_c;`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = fl_rough;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n metalnessFactor = fl_metal;')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += diffuseColor.rgb * fl_emis + fl_glow;');
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float fl_fres = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.0);
+        totalEmissiveRadiance += diffuseColor.rgb * (fl_emis + fl_fres * 0.22) + fl_glow;`);
   };
   m.customProgramCacheKey = () => 'flower-head-v1';
   return m;
 }
 
 // stem: unit height along +y with two leaves near the base (wind-bent via the instance matrix shear)
+// a leaf: pointed oval blade with a folded midrib and a gentle droop; base at the origin, pointing +z
+function leafGeometry(len = 0.3, wid = 0.11) {
+  const NU = 5, NV = 8, pos = [], col = [], idx = [];
+  const dark = new THREE.Color('#2f7f32'), light = new THREE.Color('#6cc257'), rib = new THREE.Color('#a6e08a'), c = new THREE.Color();
+  for (let j = 0; j <= NV; j++) {
+    const v = j / NV;
+    const w = wid * Math.pow(Math.sin(Math.PI * Math.pow(v, 0.8)), 0.9);
+    for (let i = 0; i <= NU; i++) {
+      const u = (i / NU) * 2 - 1;
+      const x = u * w, z = v * len;
+      const y = Math.abs(u) * w * 0.55 - v * v * len * 0.35;      // V-fold along the midrib, tip droops
+      pos.push(x, y, z);
+      c.copy(dark).lerp(light, 0.35 + v * 0.5);
+      if (Math.abs(u) < 0.2) c.lerp(rib, 0.45 * (1 - v));
+      col.push(c.r, c.g, c.b);
+    }
+  }
+  for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) {
+    const a = j * (NU + 1) + i, b = a + 1, cc = a + NU + 1, d = cc + 1;
+    idx.push(a, cc, b, b, cc, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+// stem: unit height along +y with leaves near the base (wind-bent via the instance matrix shear)
 function stemGeometry() {
-  const stem = new THREE.CylinderGeometry(0.022, 0.03, 1, 6, 4, true);
+  const stem = new THREE.CylinderGeometry(0.02, 0.032, 1, 7, 6, true);
   stem.translate(0, 0.5, 0);
-  tint(stem, '#3f9d44');
-  const leaf = (a, h, s) => {
-    const l = new THREE.SphereGeometry(0.13, 8, 5);
-    l.scale(0.42 * s, 0.1, 1.15 * s);
-    l.rotateX(-0.55);
-    l.translate(0, h, 0.12 * s);
+  // a gentle S-curve
+  const p = stem.attributes.position;
+  for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) + Math.sin(y * Math.PI) * 0.03); }
+  tint(stem, '#3f9a42');
+  const leaf = (a, h, s, tilt) => {
+    const l = leafGeometry(0.3 * s, 0.11 * s);
+    l.rotateX(-tilt);
+    l.translate(0, h, 0.015);
     l.rotateY(a);
-    return tint(l, '#4db84f');
+    return l;
   };
-  return merge([stem, leaf(0.4, 0.14, 1), leaf(0.4 + Math.PI, 0.26, 0.85)]);
+  return merge([stem, leaf(0.5, 0.1, 1.05, 0.5), leaf(0.5 + Math.PI * 0.95, 0.2, 0.9, 0.65), leaf(2.4, 0.36, 0.7, 0.8)]);
+}
+
+// flower heart: a soft domed disc (tinted per flower) and a ring of stamens with golden anthers
+function centerDiscGeometry() {
+  const g = new THREE.SphereGeometry(0.085, 14, 8);
+  g.scale(1, 0.55, 1);
+  return g;
+}
+function stamenGeometry() {
+  const parts = [];
+  const n = 10;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const f = new THREE.CylinderGeometry(0.006, 0.008, 0.1, 4);
+    f.translate(0, 0.05, 0);
+    f.rotateX(0.55); f.rotateY(a);
+    f.translate(0, 0.02, 0);
+    parts.push(tint(f, '#e9f2b8'));
+    const tip = new THREE.SphereGeometry(0.017, 6, 5);
+    tip.translate(Math.sin(a) * 0.05, 0.1, Math.cos(a) * 0.05);
+    parts.push(tint(tip, '#ffb52e'));
+  }
+  return merge(parts);
 }
 
 const TMP = { m: new THREE.Matrix4(), q: new THREE.Quaternion(), s: new THREE.Vector3(), p: new THREE.Vector3(), e: new THREE.Euler(), c: new THREE.Color() };
@@ -261,13 +326,14 @@ export class Flowers {
       scene.add(mesh);
       return { mesh, attrs, n: 0 };
     });
-    const centerGeo = new THREE.SphereGeometry(0.085, 12, 8);
-    centerGeo.scale(1, 0.62, 1);
-    this.centers = new THREE.InstancedMesh(centerGeo, new THREE.MeshStandardMaterial({ roughness: 0.8 }), capacity);
+    this.centers = new THREE.InstancedMesh(centerDiscGeometry(), new THREE.MeshStandardMaterial({ roughness: 0.75 }), capacity);
     this.centers.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
     this.centers.castShadow = true; this.centers.frustumCulled = false; this.centers.count = 0;
     scene.add(this.centers);
-    this.stems = new THREE.InstancedMesh(stemGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 }), capacity);
+    this.stamens = new THREE.InstancedMesh(stamenGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, emissive: '#3a2a00', emissiveIntensity: 0.3 }), capacity);
+    this.stamens.frustumCulled = false; this.stamens.count = 0;
+    scene.add(this.stamens);
+    this.stems = new THREE.InstancedMesh(stemGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide }), capacity);
     this.stems.castShadow = true; this.stems.frustumCulled = false; this.stems.count = 0;
     scene.add(this.stems);
     this.colors = COLORS.map((c) => new THREE.Color(c.hex));
@@ -321,6 +387,11 @@ export class Flowers {
         c.set(centerColor(f.g));
         if (f.g.mut === 3) c.set('#ffcf4a');
         this.centers.setColorAt(j, c);
+        // stamens on the flat-faced flowers (tulips and lotuses keep theirs hidden)
+        const st = f.g.shape === 2 || f.g.shape === 6 ? 0.0001 : cs;
+        s.set(st, st, st);
+        m.compose(p, q, s);
+        this.stamens.setMatrixAt(j, m);
       }
     }
   }
@@ -338,6 +409,8 @@ export class Flowers {
     this.stems.instanceMatrix.needsUpdate = true;
     this.centers.count = this.nCenter;
     this.centers.instanceMatrix.needsUpdate = true;
+    this.stamens.count = this.nCenter;
+    this.stamens.instanceMatrix.needsUpdate = true;
     if (this.centers.instanceColor) this.centers.instanceColor.needsUpdate = true;
   }
 

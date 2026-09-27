@@ -71,10 +71,13 @@ class Game {
       this.garden.forceChild = makeFlower(C.PURPLE, S.BLOSSOM);
     }
     this.view = new GardenView(this.scene, this.camera, this.garden, this.fx, QUALITY[this.qName]);
+    this.view.onGrass = (q, r, visible) => this.world.setPlotGrass(q, r, visible);
     this.ui = new UI($('ui'), this.garden, this._uiApi());
     this.ui.renderPouch();
     this.ui.renderOrders();
     for (const s of save.seeds) this.view.onEvent('seed', s);
+    for (const id in save.decor) this.world.decor.place(id, false);
+    this.world.decor.setGnome((save.upgrades.gnome || 0) > 0);
     setLoading(0.7);
     await nextFrame();
 
@@ -133,6 +136,51 @@ class Game {
     requestAnimationFrame(() => this._loop());
     if (DEV || params.has('debug')) this._debugHooks();
     window.__game = this;
+    if (params.get('cover')) this._coverMode(params.get('cover'));
+  }
+
+  // Store art: a composed close-up of a lush garden with the title (the only text CrazyGames allows on covers).
+  _coverMode(kind) {
+    const g = this.garden, s = g.s;
+    this._finishTutorial();
+    this.ui.cards.length = 0; this.ui._closeCard(true);
+    $('ui').style.display = 'none';
+    audio.setMute('cover', true);
+    const flowers = [
+      [7, 4, 1], [1, 1, 0], [6, 3, 0], [8, 5, 2], [0, 0, 0], [13, 2, 0], [4, 6, 0], [12, 3, 3], [11, 1, 0], [9, 5, 0], [2, 7, 0],
+      [10, 4, 0], [5, 0, 2], [15, 6, 1], [3, 5, 4], [7, 7, 0], [14, 3, 0], [6, 0, 1], [1, 3, 0],
+    ];
+    g.plots.forEach((p) => { if (Math.max(Math.abs(p.q), Math.abs(p.r), Math.abs(-p.q - p.r)) <= 2) p.owned = true; });
+    let n = 0;
+    g.plots.forEach((p, i) => {
+      if (!p.owned || n >= flowers.length) return;
+      const [c1, shape, pattern] = flowers[n++];
+      p.plant = { g: { c1, c2: pattern ? (c1 === 3 ? 7 : 3) : 3, shape, pattern, mut: n === 8 ? 3 : n === 14 ? 4 : 0 }, stage: 'bloom', t: 1, dur: 1, bloomT: 0, pollenT: 99, harvests: 0 };
+    });
+    s.seeds = [];
+    for (const id of ['birdbath', 'lanterns', 'windmill', 'fountain']) { s.decor[id] = 1; this.world.decor.place(id, false); }
+    s.weather = { kind: 'clear', until: 1e9, total: 1e9 };
+    this._weather('clear', false);
+    const shots = {
+      landscape: { x: 0.2, y: 0.55, z: 0.9, dist: 9.2, el: 0.6, yaw: 0.2, focus: 0.36, band: 0.14 },
+      portrait: { x: 0.1, y: 0.5, z: 1.4, dist: 9.8, el: 0.72, yaw: 0.1, focus: 0.34, band: 0.16 },
+      square: { x: 0.1, y: 0.5, z: 1.0, dist: 9.4, el: 0.64, yaw: 0.16, focus: 0.36, band: 0.15 },
+    };
+    const sh = shots[kind] || shots.landscape;
+    this.view.setCameraOverride(sh);
+    this.post.setFocus(sh.focus, sh.band);
+    if (this.post.tilt) this.post.tilt.uniforms.uMax.value = 7;
+    // bees busy on the flowers in shot
+    const busy = g.plots.map((p, i) => i).filter((i) => g.isBloom(i));
+    g.bees.length = 0;
+    g.s.upgrades.bees = 3; g.syncBees();
+    g.bees.forEach((b, k) => { b.state = 'atA'; b.a = busy[(k * 5 + 3) % busy.length]; b.b = b.a; b.t = 0; b.dur = 1e9; });
+    const title = document.createElement('div');
+    title.id = 'cover-title';
+    title.className = kind;
+    title.innerHTML = kind === 'landscape' ? '<span>Buzz &amp; Bloom</span>' : '<span>Buzz &amp;</span><span>Bloom</span>';
+    document.body.appendChild(title);
+    this.coverReady = true;
   }
 
   // ------------------------------------------------------------------------------------------ ui api
@@ -225,6 +273,7 @@ class Game {
       case 'plot': audio.play('unlock'); ui.toast(`${icon('check')} New plot!`, 'good'); this._layoutSoon(); break;
       case 'upgrade': {
         audio.play('reward');
+        if (p.k === 'gnome') this.world.decor.setGnome(true);
         ui.toast(`${icon('up_' + p.k, 24)} ${UPGRADES[p.k].name} → level ${p.level}`, 'good');
         ui.dirty.pouch = true;
         break;
@@ -232,7 +281,8 @@ class Game {
       case 'decor': {
         audio.play('win');
         ui.toast(`${icon('star')} ${p.d.name} placed! ${p.d.text}`, 'gold', 3);
-        this.world.placeDecor?.(p.id, true);
+        this.world.decor.place(p.id, true);
+        { const d = this.world.decor.items[p.id]; if (d) this.fx.sparkles(d.position.x, 1, d.position.z, '#fff1b0', 24, 1.2, 1.3); }
         break;
       }
       case 'buySeed': audio.play('coin'); ui.dirty.pouch = true; break;
@@ -294,7 +344,7 @@ class Game {
         ui.dirty.pouch = true;
         break;
       }
-      case 'gnome': break;
+      case 'gnome': this.world.decor.hop(); break;
       default: break;
     }
     if (name !== 'bee:visit' && name !== 'bee:pollinate' && name !== 'can') saveSoon(g.s);
@@ -318,12 +368,23 @@ class Game {
       ui.toast(`${flowerSVG(g, { size: 26 })} New species: <b>${flowerName(g, { withMut: false })}</b> · +${fmt(p.coins)}`, 'good', 2.6);
       return;
     }
-    ui.showCard({
-      tutorial: this.garden.s.tutorial < 99,
+    const one = {
+      tutorial: this.garden.s.tutorial < 99, merge: 'discover', found: [g], coins: p.coins,
       tag: '★'.repeat(rarity(g)), kicker: 'New species!', hero: flowerSVG({ ...g, mut: 0 }, { size: 150 }),
       title: flowerName(g, { withMut: false }), desc: `Added to your Flower Book (${this.garden.discoveredCount()}/128)`,
       reward: `${icon('coin')} +${fmt(p.coins)}`,
-    });
+    };
+    // several discoveries waiting in the queue become one "N new species" card
+    one.mergeWith = (q) => {
+      const found = [...q.found, g], coins = q.coins + p.coins;
+      return {
+        found, coins, tag: '', kicker: `${found.length} new species!`,
+        hero: `<div style="display:flex;flex-wrap:wrap;gap:.2em;justify-content:center;align-items:center;width:100%;height:100%">${found.slice(0, 6).map((f) => flowerSVG({ ...f, mut: 0 }, { size: found.length > 4 ? 60 : 76 })).join('')}</div>`,
+        title: found.map((f) => flowerName(f, { withMut: false })).slice(0, 4).join(', ') + (found.length > 4 ? '…' : ''),
+        desc: `Added to your Flower Book (${this.garden.discoveredCount()}/128)`, reward: `${icon('coin')} +${fmt(coins)}`,
+      };
+    };
+    ui.showCard(one);
     const h = this.view.headPos(this.garden.plots.findIndex((pl) => pl.plant && speciesId(pl.plant.g) === p.id));
     if (h && isFinite(h.x)) this.fx.sparkles(h.x, h.y, h.z, '#fff4a8', 24, 0.8, 1.4);
   }
@@ -335,6 +396,7 @@ class Game {
     this.fx.setFireflies(kind === 'night');
     this.fx.setMotes(kind === 'golden' || kind === 'rainbow');
     audio.setMusicMood(kind === 'night' ? 'menu' : 'play');
+    audio.setAmbience(kind === 'clear' ? 'day' : kind);
     if (!announce) return;
     const msg = {
       rain: `${icon('rain')} Rain shower! Flowers grow twice as fast`,
@@ -396,7 +458,8 @@ class Game {
           view.hoverPlot = i;
           const seedHit = view.pickSeed(p.x, p.y) != null;
           cv.style.cursor = seedHit || (i >= 0 && (g.plots[i].owned || g.canBuyPlot(i))) ? 'pointer' : 'default';
-        }
+          ui.hoverInfo(p.x, p.y, seedHit ? `${icon('seed', 18)} New seed — click to collect` : this._plotInfo(i));
+        } else ui.hoverInfo(0, 0, null);
         return;
       }
       if (Math.hypot(p.x - down.x, p.y - down.y) > 6) down.moved = true;
@@ -406,7 +469,7 @@ class Game {
     const end = () => { down = null; };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
-    cv.addEventListener('pointerleave', () => { view.hoverPlot = -1; });
+    cv.addEventListener('pointerleave', () => { view.hoverPlot = -1; ui.hoverInfo(0, 0, null); });
     // keyboard shortcuts (desktop)
     addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -457,6 +520,19 @@ class Game {
     const known = !!g.s.book[speciesId(pl.g)];
     ui.toast(`${known ? flowerSVG(pl.g, { size: 26 }) : seedSVG(pl.g, 26)} ${known ? flowerName(pl.g) : 'Mystery hybrid'} · blooms in ${Math.ceil(left)}s${g.has('can') && g.s.can.charges ? ' — water it to speed up!' : ''}`, '', 2);
     audio.play('toggle');
+  }
+
+  // one-line description of a plot for the desktop hover tooltip
+  _plotInfo(i) {
+    const g = this.garden;
+    if (i < 0) return null;
+    const plot = g.plots[i], pl = plot.plant;
+    if (!plot.owned) return g.canBuyPlot(i) && g.s.tutorial >= 99 ? `${icon('coin', 16)} New plot · ${fmt(g.nextPlotCost())} coins` : null;
+    if (!pl) return this.ui.sel >= 0 ? `${icon('seed', 16)} Plant here` : null;
+    const known = !!g.s.book[speciesId(pl.g)];
+    const name = known || pl.stage === 'bloom' ? flowerName(pl.g) : 'Mystery hybrid';
+    if (pl.stage === 'bloom') return `${flowerSVG(pl.g, { size: 20 })} <b>${name}</b> · harvest +${fmt(g.sellValue(pl.g))}`;
+    return `${known ? flowerSVG(pl.g, { size: 20 }) : seedSVG(pl.g, 20)} ${name} · blooms in ${Math.ceil((pl.dur - pl.t) / g.speedNow())}s`;
   }
 
   _swipeAt(x, y, down) {

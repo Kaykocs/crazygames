@@ -1,7 +1,7 @@
 // GardenView: turns the Garden simulation into the 3D scene — beds, plants, seed bubbles, bees — and owns the
 // camera framing and picking. It never changes game state; it only reads it and animates.
 import * as THREE from 'three';
-import { roundedHexPrism } from '../gfx/geometry.js';
+import { Beds } from '../gfx/beds.js';
 import { Flowers } from '../gfx/flowers.js';
 import { Bees, Butterflies } from '../gfx/critters.js';
 import { COLORS, M } from './genetics.js';
@@ -11,24 +11,6 @@ import { damp, clamp, ease, rng, smoothstep, lerp } from '../core/math.js';
 
 const FLOWER_H = 0.78;              // stem height of a grown flower
 const BED_TOP = 0.2;                // soil surface height
-
-function soilTexture() {
-  const S = 128, cv = document.createElement('canvas');
-  cv.width = cv.height = S;
-  const g = cv.getContext('2d');
-  g.fillStyle = '#6b4a33'; g.fillRect(0, 0, S, S);
-  const R = rng(5);
-  for (let i = 0; i < 900; i++) {
-    const v = R();
-    g.fillStyle = v < 0.5 ? `rgba(60,38,24,${0.3 + R() * 0.4})` : `rgba(150,112,80,${0.15 + R() * 0.3})`;
-    const r = 0.6 + R() * 1.8;
-    g.beginPath(); g.arc(R() * S, R() * S, r, 0, Math.PI * 2); g.fill();
-  }
-  const t = new THREE.CanvasTexture(cv);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
 
 // seed bubble: glassy orb (fresnel, additive) around a little seed in the child's colour
 const orbGeo = new THREE.SphereGeometry(0.34, 20, 14);
@@ -55,16 +37,11 @@ export class GardenView {
     this.time = 0;
     this.N = garden.plots.length;
     this.R = rng(3);
-    // --- beds
-    const rimGeo = roundedHexPrism({ radius: 0.94, height: 0.14, corner: 0.22, bevel: 0.05 });
-    const soilGeo = roundedHexPrism({ radius: 0.8, height: BED_TOP, corner: 0.2, bevel: 0.07, bevelSegs: 3 });
-    this.rims = new THREE.InstancedMesh(rimGeo, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.7 }), this.N);
-    this.soil = new THREE.InstancedMesh(soilGeo, new THREE.MeshStandardMaterial({ color: '#ffffff', map: soilTexture(), roughness: 1 }), this.N);
-    this.rims.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.N * 3), 3);
-    this.soil.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.N * 3), 3);
-    for (const m of [this.rims, this.soil]) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; scene.add(m); }
+    // --- beds (wooden hex planters)
+    this.beds = new Beds(scene, garden.pos);
+    this.onGrass = null;                 // (q, r, visible) → world clears / restores the grass under a bed
     this.pv = garden.plots.map((p, i) => ({
-      grow: 0, stem: 0, head: 0, open: 0, pop: 0, harvestT: 0, bedK: p.owned ? 1 : 0, hover: 0, wet: 0, bump: 0,
+      grow: 0, stem: 0, head: 0, open: 0, pop: 0, harvestT: 0, bedK: p.owned ? 1 : 0, hover: 0, wet: 0, bump: 0, grassOff: null,
       seed: this.R(), face: this.R() * Math.PI * 2, tilt: 0.28 + this.R() * 0.1, g: null, shown: false,
     }));
     this.flowers = new Flowers(scene, 48);
@@ -93,7 +70,7 @@ export class GardenView {
       x0 = Math.min(x0, w.x - 1.35); x1 = Math.max(x1, w.x + 1.35); z0 = Math.min(z0, w.z - 1.2); z1 = Math.max(z1, w.z + 1.2);
     });
     const cam = this.camera, aspect = cam.aspect;
-    const el = aspect < 0.8 ? 1.02 : 0.9;           // steeper on portrait phones so more rows fit
+    const el = aspect < 0.8 ? 0.98 : 0.8;           // steeper on portrait phones so more rows fit
     const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
     const pts = [];
     for (const x of [x0, x1]) for (const z of [z0, z1]) for (const y of [0, FLOWER_H + 0.5]) pts.push(new THREE.Vector3(x, y, z));
@@ -202,7 +179,7 @@ export class GardenView {
       case 'dig': pv.bump = 1; this.fx.leaves(w.x, BED_TOP + 0.2, w.z, 10); this.fx.dust(w.x, BED_TOP, w.z, 6); break;
       case 'water': pv.wet = 1; this.fx.water(w.x, BED_TOP, w.z, 18); break;
       case 'mutate': { const h = this.headPos(p.i); this.fx.sparkles(h.x, h.y, h.z, mutColor(p.g.mut), 18, 0.6, 1.3); pv.pop = 0.6; break; }
-      case 'plot': pv.bump = 1; this.fx.dust(w.x, 0.1, w.z, 14); this.fx.sparkles(w.x, 0.4, w.z, '#fff1b0', 12, 0.8); this.frame(); break;
+      case 'plot': pv.bedK = 0; this.fx.dust(w.x, 0.1, w.z, 18); this.fx.leaves(w.x, 0.2, w.z, 10); this.fx.sparkles(w.x, 0.5, w.z, '#fff1b0', 14, 0.9); this.frame(); break;
       case 'seed': this._addOrb(p); break;
       case 'seedCollected': this._removeOrb(p.id); break;
       case 'bee:pollinate': { const h = this.headPos(p.i); this.fx.pollen(h.x, h.y + 0.1, h.z, 8); break; }
@@ -231,13 +208,21 @@ export class GardenView {
   orbScreen(id) { const o = this.orbs.get(id); return o ? this.project(o.g.position.x, o.g.position.y, o.g.position.z) : null; }
 
   // ------------------------------------------------------------------------------------------ frame
+  // fixed hero camera (cover art / trailer): { x, y, z, dist, el, yaw }
+  setCameraOverride(o) { this.override = o; }
+
   update(dt, time) {
     this.time = time;
     const g = this.garden;
     // camera easing + a slow breathing sway so the diorama feels alive
     const c = this.cam;
     c.x = damp(c.x, c.tx, 3, dt); c.z = damp(c.z, c.tz, 3, dt); c.dist = damp(c.dist, c.tdist, 3, dt);
-    this._place(c.x, c.z, c.dist, c.el, Math.sin(time * 0.11) * 0.035);
+    if (this.override) {
+      const o = this.override, cam = this.camera;
+      cam.position.set(o.x + Math.sin(o.yaw) * o.dist * Math.cos(o.el), o.y + Math.sin(o.el) * o.dist, o.z + Math.cos(o.yaw) * o.dist * Math.cos(o.el));
+      cam.lookAt(o.x, o.y, o.z);
+      cam.updateMatrixWorld(true);
+    } else this._place(c.x, c.z, c.dist, c.el, Math.sin(time * 0.11) * 0.035);
     this._beds(dt);
     this._plants(dt, time);
     this._orbs(dt, time);
@@ -248,33 +233,21 @@ export class GardenView {
   }
 
   _beds(dt) {
-    const g = this.garden, m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), col = this.tmpC;
-    const rimCol = new THREE.Color('#f1b85a'), rimGhost = new THREE.Color('#8fbf5e'), soilCol = new THREE.Color('#ffffff');
+    const g = this.garden;
     for (let i = 0; i < this.N; i++) {
-      const pv = this.pv[i], plot = g.plots[i], w = g.pos[i];
-      const buyable = !plot.owned && g.canBuyPlot(i);
-      pv.bedK = damp(pv.bedK, plot.owned ? 1 : buyable && g.s.tutorial >= 99 ? 0.35 : 0, 6, dt);
+      const pv = this.pv[i], plot = g.plots[i];
+      const buyable = !plot.owned && g.canBuyPlot(i) && g.s.tutorial >= 99;
+      pv.bedK = plot.owned ? Math.min(1, pv.bedK + dt * 1.1) : 0;
       pv.hover = damp(pv.hover, this.hoverPlot === i ? 1 : 0, 14, dt);
       pv.wet = Math.max(0, pv.wet - dt * 0.15);
       pv.bump = Math.max(0, pv.bump - dt * 3);
-      const k = pv.bedK;
-      const bump = 1 + Math.sin(pv.bump * Math.PI) * 0.12;
-      // rim
-      const rs = k < 0.02 ? 0 : (0.6 + 0.4 * k) * bump * (1 + pv.hover * 0.04);
-      s.set(rs, plot.owned ? 1 : 0.5, rs); p.set(w.x, -0.02, w.z); q.identity();
-      m.compose(p, q, s); this.rims.setMatrixAt(i, m);
-      col.copy(plot.owned ? rimCol : rimGhost).multiplyScalar(1 + pv.hover * 0.25);
-      this.rims.setColorAt(i, col);
-      // soil (owned only)
-      const ss = plot.owned ? k * bump : 0;
-      s.set(ss, ss * (1 - pv.bump * 0.2), ss); p.set(w.x, 0, w.z);
-      m.compose(p, q, s); this.soil.setMatrixAt(i, m);
-      const glow = this.highlightEmpty && plot.owned && !plot.plant ? 0.18 + 0.12 * Math.sin(this.time * 5) : 0;
-      col.copy(soilCol).multiplyScalar((1 - pv.wet * 0.35) * (1 + pv.hover * 0.22 + glow));
-      if (glow) col.g += glow * 0.6;
-      this.soil.setColorAt(i, col);
+      if (plot.owned !== pv.grassOff) { pv.grassOff = plot.owned; this.onGrass?.(plot.q, plot.r, !plot.owned); }
+      this.beds.set(i, {
+        owned: plot.owned, buyable, k: pv.bedK, hover: pv.hover, wet: pv.wet,
+        bump: Math.sin(pv.bump * Math.PI), glow: this.highlightEmpty && plot.owned && !plot.plant,
+      }, this.time);
     }
-    for (const mm of [this.rims, this.soil]) { mm.instanceMatrix.needsUpdate = true; mm.instanceColor.needsUpdate = true; }
+    this.beds.commit();
   }
 
   _plants(dt, time) {
