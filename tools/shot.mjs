@@ -162,6 +162,25 @@ for (const name of only) {
       await page.screenshot({ animations: 'disabled', path: `shots/${name}-6-${w}.png` });
     }
     await page.evaluate(() => __game.debug.weather('clear'));
+    // look around: drag the lawn and zoom with the wheel (desktop) — then let it settle
+    if (!VIEWS[name].isMobile) {
+      const vp = VIEWS[name].viewport;
+      await page.mouse.move(vp.width * 0.08, vp.height * 0.5);
+      await page.mouse.down();
+      await page.mouse.move(vp.width * 0.3, vp.height * 0.55, { steps: 6 });
+      await page.mouse.up();
+      await page.mouse.move(vp.width * 0.5, vp.height * 0.5);
+      await page.mouse.wheel(0, -240);
+      await page.evaluate(() => __game.debug.sim(0.6));
+      await page.screenshot({ animations: 'disabled', path: `shots/${name}-6-pan.png` });
+      const cam = await page.evaluate(() => ({ user: __game.view.user, cam: __game.stage.cam }));
+      console.log(`[${name}] after pan/zoom`, JSON.stringify(cam));
+      // buying a decoration closes the shop and shows it off
+      await page.evaluate(() => { __game.debug.coins(5000); __game.ui.openShop(); __game.garden.buyDecor('birdbath'); });
+      await page.evaluate(() => __game.debug.sim(1.2));
+      await page.screenshot({ animations: 'disabled', path: `shots/${name}-6-decor.png` });
+      await page.evaluate(() => __game.debug.sim(10));
+    }
     await page.evaluate(() => __game.ui.openShop());
     await page.waitForTimeout(700);
     await page.screenshot({ animations: 'disabled', path: `shots/${name}-7-shop.png` });

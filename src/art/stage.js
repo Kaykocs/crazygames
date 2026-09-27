@@ -87,7 +87,7 @@ export class Stage {
   // ------------------------------------------------------------------------------------------ camera
   setTarget(x, y, ppu, snap = false) {
     this.target.x = x; this.target.y = y; this.target.ppu = ppu;
-    if (snap) { this.cam.x = x; this.cam.y = y; this.cam.ppu = ppu; this.groundDirty = true; }
+    if (snap) { this.cam.x = x; this.cam.y = y; this.cam.ppu = ppu; }
   }
   updateCamera(dt) {
     const c = this.cam, t = this.target, k = 1 - Math.exp(-3.2 * dt);
@@ -118,7 +118,7 @@ export class Stage {
   _bakeGround() {
     const t = this.target, dpr = this.dpr;
     const hw = this.vw / 2 / t.ppu, hh = this.vh / 2 / t.ppu;
-    const m = 0.12;
+    const m = 0.25;
     const X0 = t.x - hw * (1 + m), X1 = t.x + hw * (1 + m), Y0 = t.y - hh * (1 + m), Y1 = t.y + hh * (1 + m);
     const W = Math.ceil((X1 - X0) * t.ppu * dpr), H = Math.ceil((Y1 - Y0) * t.ppu * dpr);
     if (this.gcv.width !== W || this.gcv.height !== H) { this.gcv.width = W; this.gcv.height = H; }
@@ -130,12 +130,15 @@ export class Stage {
     this.bake = { X0, Y0, X1, Y1, ppu: t.ppu };
     this.groundDirty = false;
   }
+  // the cached ground is reused while it covers the view at a close enough scale; while the camera is still
+  // moving a slightly blurry (scaled) ground is fine, once it settles the scale must match
   _groundValid() {
-    const b = this.bake, t = this.target;
+    const b = this.bake, t = this.target, c = this.cam;
     if (!b || this.groundDirty) return false;
-    if (Math.abs(b.ppu / t.ppu - 1) > 0.02) return false;
-    const hw = this.vw / 2 / t.ppu, hh = this.vh / 2 / t.ppu;
-    return t.x - hw >= b.X0 - 1e-3 && t.x + hw <= b.X1 + 1e-3 && t.y - hh >= b.Y0 - 1e-3 && t.y + hh <= b.Y1 + 1e-3;
+    const moving = Math.abs(t.ppu / c.ppu - 1) > 0.003 || Math.abs(t.x - c.x) > 0.01 || Math.abs(t.y - c.y) > 0.01;
+    if (Math.abs(b.ppu / c.ppu - 1) > (moving ? 0.3 : 0.02)) return false;
+    const hw = this.vw / 2 / c.ppu, hh = this.vh / 2 / c.ppu;
+    return c.x - hw >= b.X0 - 1e-3 && c.x + hw <= b.X1 + 1e-3 && c.y - hh >= b.Y0 - 1e-3 && c.y + hh <= b.Y1 + 1e-3;
   }
 
   // ------------------------------------------------------------------------------------------ frame

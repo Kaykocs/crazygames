@@ -19,8 +19,9 @@ exposes `window.__game.debug` (coins, levels, weather, freeze/step/sim) in produ
 
 Controls: tap or click a seed in the pouch, then tap soil to plant (drag across beds to plant several). Tap or
 swipe over blooms to harvest, tap the glowing bubbles to collect the seeds your bees make. The watering can
-speeds up a growing plant, and the trowel digs a plant up. Keyboard: `1-9` pick seeds, `W` water, `D` dig,
-`S` shop, `B` book, `Esc` closes panels.
+speeds up a growing plant, and the trowel digs a plant up. Drag the lawn to look around, and pinch or use the
+mouse wheel to zoom; the view drifts back to the garden after a few seconds. Keyboard: `1-9` pick seeds, `W`
+water, `D` dig, `S` shop, `B` book, `Esc` closes panels.
 
 ## Build for CrazyGames
 

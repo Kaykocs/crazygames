@@ -388,7 +388,7 @@ class Decor {
     if (this.items[id]) return;
     const spot = DECOR_SPOTS[id];
     if (!spot) return;
-    const it = { id, x: spot.x, z: spot.z, k: animate ? 0 : 1, sortY: spot.z * SQ, position: { x: spot.x, y: 0, z: spot.z }, draw: null };
+    const it = { id, x: spot.x, z: spot.z, k: animate ? -0.9 : 1, sortY: spot.z * SQ, position: { x: spot.x, y: 0, z: spot.z }, draw: null };
     it.draw = (ctx, s, t) => this._draw(ctx, s, it, t);
     this.items[id] = it;
   }
@@ -411,6 +411,7 @@ class Decor {
   _draw(ctx, s, it, time) {
     const w = this.w, ppu = s.cam.ppu;
     const X = s.sx(it.x), Y = s.sy(it.z * SQ);
+    if (it.k <= 0) return;                  // waiting for the camera to arrive
     const k = it.k >= 1 ? 1 : ease.outBack(it.k);
     const sy = Math.max(0.01, k), sx = 1 + (1 - Math.min(1, it.k)) * 0.2;
     if (it.id === 'gnome') {

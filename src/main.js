@@ -275,10 +275,16 @@ class Game {
         break;
       }
       case 'decor': {
+        // close the shop and glide over to the new decoration so the player sees it pop into the garden
         audio.play('win');
         ui.toast(`${icon('star')} ${p.d.name} placed! ${p.d.text}`, 'gold', 3);
         this.world.decor.place(p.id, true);
-        { const d = this.world.decor.items[p.id]; if (d) this.fx.sparkles(d.position.x, 1, d.position.z, '#fff1b0', 24, 1.2, 1.3); }
+        if (ui.panel) ui.closePanel();
+        const d = this.world.decor.items[p.id];
+        if (d) {
+          view.focusOn(d.position.x, d.position.z, 3.2);
+          setTimeout(() => { this.fx.sparkles(d.position.x, 1, d.position.z, '#fff1b0', 26, 1.3, 1.4); this.fx.dust(d.position.x, 0.1, d.position.z, 14); audio.play('unlock'); }, 650);
+        }
         break;
       }
       case 'buySeed': audio.play('coin'); ui.dirty.pouch = true; break;
@@ -437,33 +443,58 @@ class Game {
     const cv = this.stage.canvas;
     const g = this.garden, ui = this.ui, view = this.view;
     let down = null;
+    const pts = new Map();           // active pointers (for pinch zoom)
+    let pinch = null;
     const pos = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const pinchState = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
     cv.addEventListener('pointerdown', (e) => {
       if (ui.busy) return;
       const p = pos(e);
       cv.setPointerCapture?.(e.pointerId);
-      down = { x: p.x, y: p.y, moved: false, mode: null, done: new Set(), t: performance.now() };
-      this._tapAt(p.x, p.y, down);
+      pts.set(e.pointerId, p);
+      if (pts.size === 2) { pinch = pinchState(); if (down) down.mode = 'pinch'; return; }
+      if (pts.size > 2) return;
+      down = { x: p.x, y: p.y, lx: p.x, ly: p.y, moved: false, mode: null, done: new Set(), t: performance.now() };
+      // taps on empty lawn start a pan; anything else is a garden action (and swipes continue it)
+      if (!this._tapAt(p.x, p.y, down) && !down.mode) down.mode = 'pan';
     });
     cv.addEventListener('pointermove', (e) => {
       const p = pos(e);
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, p);
+      if (pinch && pts.size === 2) {
+        const n = pinchState();
+        if (n.d > 10 && pinch.d > 10) view.zoomAt(n.d / pinch.d, n.x, n.y);
+        view.panBy(n.x - pinch.x, n.y - pinch.y);
+        pinch = n;
+        return;
+      }
       if (!down) {
         if (e.pointerType === 'mouse' && !ui.busy) {
           const i = view.pickPlot(p.x, p.y);
           view.hoverPlot = i;
           const seedHit = view.pickSeed(p.x, p.y) != null;
-          cv.style.cursor = seedHit || (i >= 0 && (g.plots[i].owned || g.canBuyPlot(i))) ? 'pointer' : 'default';
+          cv.style.cursor = seedHit || (i >= 0 && (g.plots[i].owned || g.canBuyPlot(i))) ? 'pointer' : 'grab';
           ui.hoverInfo(p.x, p.y, seedHit ? `${icon('seed', 18)} New seed — click to collect` : this._plotInfo(i));
         } else ui.hoverInfo(0, 0, null);
         return;
       }
       if (Math.hypot(p.x - down.x, p.y - down.y) > 6) down.moved = true;
+      if (down.mode === 'pan') {
+        if (down.moved) { view.panBy(p.x - down.lx, p.y - down.ly); cv.style.cursor = 'grabbing'; }
+        down.lx = p.x; down.ly = p.y;
+        return;
+      }
       // swipe: keep harvesting / planting / collecting along the path
-      if (down.mode) this._swipeAt(p.x, p.y, down);
+      if (down.mode && down.mode !== 'pinch') this._swipeAt(p.x, p.y, down);
     });
-    const end = () => { down = null; };
+    const end = (e) => {
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      if (pts.size === 0) { down = null; if (cv.style.cursor === 'grabbing') cv.style.cursor = 'grab'; }
+    };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
+    cv.addEventListener('wheel', (e) => { if (!ui.busy) { const p = pos(e); view.zoomAt(Math.exp(-Math.max(-120, Math.min(120, e.deltaY)) * 0.0022), p.x, p.y); } }, { passive: true });
     cv.addEventListener('pointerleave', () => { view.hoverPlot = -1; ui.hoverInfo(0, 0, null); });
     // keyboard shortcuts (desktop)
     addEventListener('keydown', (e) => {
@@ -482,39 +513,40 @@ class Game {
   _tapAt(x, y, down) {
     const g = this.garden, ui = this.ui, view = this.view;
     const seedId = view.pickSeed(x, y);
-    if (seedId != null) { g.collectSeed(seedId); down.mode = 'collect'; return; }
+    if (seedId != null) { g.collectSeed(seedId); down.mode = 'collect'; return true; }
     const i = view.pickPlot(x, y);
-    if (i < 0) return;
+    if (i < 0) return false;
     const plot = g.plots[i], pl = plot.plant;
     const tut = g.s.tutorial < 99 ? TUT[g.s.tutorial]?.key : null;
-    if (!plot.owned) { if (g.canBuyPlot(i) && g.s.tutorial >= 99) this._buyPlot(i, ui.plotTags.get(i)); return; }
+    if (!plot.owned) { if (g.canBuyPlot(i) && g.s.tutorial >= 99) { this._buyPlot(i, ui.plotTags.get(i)); return true; } return false; }
     if (ui.tool === 'water') {
       if (pl && pl.stage === 'grow') { if (!g.water(i)) { audio.play('invalid'); ui.toast('The watering can is empty — it refills by itself', 'warn'); } }
       else audio.play('invalid');
       down.mode = 'water'; down.done.add(i);
-      return;
+      return true;
     }
     if (ui.tool === 'dig') {
       if (pl) g.dig(i); else audio.play('invalid');
-      return;
+      return true;
     }
     if (pl && pl.stage === 'bloom') {
-      if (tut && tut !== 'harvest') { ui.toast('Let the bees visit your blooms first!', ''); return; }
+      if (tut && tut !== 'harvest') { ui.toast('Let the bees visit your blooms first!', ''); return true; }
       g.harvest(i); down.mode = 'harvest'; down.done.add(i);
-      return;
+      return true;
     }
     if (!pl) {
-      if (tut === 'plant2' && !g.nb[i].some((j) => g.plots[j].plant)) { audio.play('invalid'); ui.toast(`${icon('bee')} Plant it right <b>next to</b> your first flower!`, ''); return; }
+      if (tut === 'plant2' && !g.nb[i].some((j) => g.plots[j].plant)) { audio.play('invalid'); ui.toast(`${icon('bee')} Plant it right <b>next to</b> your first flower!`, ''); return true; }
       if (ui.sel >= 0) { this._plantAt(i); down.mode = tut ? null : 'plant'; down.done.add(i); }
       else if (g.s.pouch.length) { audio.play('invalid'); ui.toast(`${icon('seed')} Pick a seed from your pouch first`, ''); ui.pouchEl.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 350 }); }
       else ui.toast(`${icon('basket')} No seeds — buy some in the shop!`, '');
-      return;
+      return true;
     }
     // growing plant: show what it is and when it blooms
     const left = (pl.dur - pl.t) / g.speedNow();
     const known = !!g.s.book[speciesId(pl.g)];
     ui.toast(`${known ? flowerSVG(pl.g, { size: 26 }) : seedSVG(pl.g, 26)} ${known ? flowerName(pl.g) : 'Mystery hybrid'} · blooms in ${Math.ceil(left)}s${g.has('can') && g.s.can.charges ? ' — water it to speed up!' : ''}`, '', 2);
     audio.play('toggle');
+    return true;
   }
 
   // one-line description of a plot for the desktop hover tooltip

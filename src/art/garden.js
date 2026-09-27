@@ -73,6 +73,9 @@ export class GardenView {
     this.highlightEmpty = false;
     this.cam = { x: 0, z: 0 };
     this.safe = { left: 0, right: 0, top: 0, bottom: 0 };
+    this.base = { x: 0, y: 0, ppu: 60 };                  // automatic framing of the garden
+    this.user = { x: 0, y: 0, zoom: 1, idle: 99 };        // the player's pan (screen units) / zoom on top of it
+    this.focus = null;                                     // { x, y, t, dur }: a short look at something new
     this.hive = { x: HIVE_POS.x, z: HIVE_POS.z, y: HIVE_ENTRANCE };
     this.frame(true);
   }
@@ -100,8 +103,46 @@ export class GardenView {
     ppu = clamp(ppu, 22, Math.min(118, Math.max(W, H) / 11.5));
     const cx = (X0 + X1) / 2 - ((s.left - s.right) / 2) / ppu;
     const cy = (Y0 + Y1) / 2 - ((s.top - s.bottom) / 2) / ppu;
-    st.setTarget(cx, cy, ppu, snap);
+    this.base.x = cx; this.base.y = cy; this.base.ppu = ppu;
     this.cam.x = cx; this.cam.z = cy / SQ;
+    this._applyCam(snap);
+  }
+  _applyCam(snap = false) {
+    if (this.override) return;
+    const b = this.base, u = this.user;
+    let x = b.x + u.x, y = b.y + u.y, ppu = b.ppu * u.zoom;
+    if (this.focus) { x = this.focus.x; y = this.focus.y; ppu = Math.max(b.ppu, 46); }
+    x = clamp(x, -17, 17); y = clamp(y, -13 * SQ, 15 * SQ);
+    this.stage.setTarget(x, y, ppu, snap);
+  }
+  // direct manipulation: drag to pan (screen px), pinch / wheel to zoom about a screen point
+  panBy(dx, dy) {
+    const ppu = this.stage.cam.ppu;
+    this.user.x -= dx / ppu; this.user.y -= dy / ppu; this.user.idle = 0; this.focus = null;
+    this._clampUser();
+    this._applyCam(true);
+  }
+  zoomAt(k, sx, sy) {
+    const st = this.stage, u = this.user;
+    const z0 = u.zoom, z1 = clamp(z0 * k, 0.7, 1.9);
+    if (z1 === z0) return;
+    const p0 = this.base.ppu * z0, p1 = this.base.ppu * z1;
+    // keep the world point under the cursor where it is
+    const ox = (sx - st.vw / 2), oy = (sy - st.vh / 2);
+    u.x += ox / p0 - ox / p1; u.y += oy / p0 - oy / p1;
+    u.zoom = z1; u.idle = 0; this.focus = null;
+    this._clampUser();
+    this._applyCam(true);
+  }
+  _clampUser() {
+    const u = this.user, b = this.base;
+    u.x = clamp(u.x, -17 - b.x, 17 - b.x); u.y = clamp(u.y, -13 * SQ - b.y, 15 * SQ - b.y);
+  }
+  // glide to a world point for a moment (e.g. a new decoration), then come back to the garden
+  focusOn(x, z, dur = 2.6) {
+    this.user.x = 0; this.user.y = 0; this.user.zoom = 1;
+    this.focus = { x, y: z * SQ - 0.9, t: 0, dur };
+    this._applyCam();
   }
   // fixed hero camera (cover art / trailer): { x, z, ppu }
   setCameraOverride(o) { this.override = o; if (o) this.stage.setTarget(o.x, o.z * SQ, o.ppu, true); }
@@ -179,6 +220,15 @@ export class GardenView {
   update(dt, time) {
     this.time = time;
     const g = this.garden;
+    // the camera drifts back to the garden a few seconds after the player stops looking around
+    const u = this.user;
+    u.idle += dt;
+    if (this.focus) { this.focus.t += dt; if (this.focus.t >= this.focus.dur) this.focus = null; this._applyCam(); }
+    else if (u.idle > 7 && (Math.abs(u.x) + Math.abs(u.y) > 0.01 || Math.abs(u.zoom - 1) > 0.005)) {
+      const k = 1 - Math.exp(-1.6 * dt);
+      u.x -= u.x * k; u.y -= u.y * k; u.zoom += (1 - u.zoom) * k;
+      this._applyCam();
+    }
     for (let i = 0; i < this.N; i++) this._animPlot(this.pv[i], g.plots[i], dt);
     this._orbs(dt, time);
     this.bees.update(dt, time, g.bees, g, (i) => this.headY(i), this.hive);
