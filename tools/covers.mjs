@@ -22,6 +22,8 @@ for (const [kind, [w, h]] of Object.entries(SIZES)) {
   await page.evaluate(() => { __game.debug.freeze(); for (let i = 0; i < 12; i++) __game.debug.sim(0.5); });
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(500);
+  // a layout pass may have resized (cleared) the canvas while frozen: draw the final frame right before the shot
+  await page.evaluate(() => __game.debug.sim(0.1));
   await page.screenshot({ path: `covers/cover-${kind}-${w}x${h}.png`, animations: 'disabled' });
   console.log('wrote', `covers/cover-${kind}-${w}x${h}.png`);
   await page.close();

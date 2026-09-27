@@ -157,13 +157,15 @@ class Game {
     s.weather = { kind: 'clear', until: 1e9, total: 1e9 };
     this._weather('clear', false);
     const W = innerWidth, H = innerHeight;
+    // the garden sits low in the frame so the title has the sky-ish top band to itself
     const shots = {
-      landscape: { x: 0.4, z: -0.6, ppu: Math.min(W / 13, H / 7.6) },
-      portrait: { x: 0.2, z: -0.2, ppu: Math.min(W / 9.4, H / 13) },
-      square: { x: 0.3, z: -0.4, ppu: Math.min(W / 10.5, H / 9) },
+      landscape: { x: 0.3, z: -2.1, ppu: Math.min(W / 14.5, H / 8.6) },
+      portrait: { x: 0.1, z: -3.2, ppu: Math.min(W / 9.6, H / 14.5) },
+      square: { x: 0.2, z: -2.6, ppu: Math.min(W / 11, H / 10.5) },
     };
     const sh = shots[kind] || shots.landscape;
     this.view.setCameraOverride(sh);
+    this.view.hideSale = true;
     // bees busy on the flowers in shot
     const busy = g.plots.map((p, i) => i).filter((i) => g.isBloom(i));
     g.bees.length = 0;

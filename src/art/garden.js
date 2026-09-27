@@ -247,7 +247,7 @@ export class GardenView {
   // ------------------------------------------------------------------------------------------ stage layer
   ground(ctx, s) {
     const g = this.garden;
-    if (g.s.tutorial < 99) return;
+    if (g.s.tutorial < 99 || this.hideSale) return;
     const res = s.res, ppu = s.cam.ppu;
     for (let i = 0; i < this.N; i++) {
       const p = g.plots[i];

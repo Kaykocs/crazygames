@@ -34,11 +34,11 @@ A flower = `{ c1, c2, shape, pattern, mut }`.
 Crossing two colours with a mix rule gives the mix 55 %, a bicolour of both parents 20 %, else one parent's
 colour. Without a rule the child takes either parent's colour (sometimes bicolour).
 
-**Shapes** (8, 4 tiers): Round, Daisy (shop) → Tulip (Round×Round 12 %), Star (Round×Daisy 22 %) → Heart
+**Shapes** (8, 4 tiers): Blossom, Daisy (shop) → Tulip (Blossom×Blossom 12 %), Star (Blossom×Daisy 22 %) → Heart
 (Tulip×Star 15 %), Frill (Daisy×Star 15 %) → Lotus (Tulip×Frill 10 %), Pinwheel (Star×Heart 10 %). Otherwise
 inherited 50/50, plus a 2 % random shape mutation.
 
-**Patterns**: Plain, Bicolour, Stripes, Spots, Tipped. Inherited 50/50; 5 % pattern mutation.
+**Patterns**: Plain, Two-tone, Striped, Spotted, Tipped. Inherited 50/50; 5 % pattern mutation.
 
 **Mutations** (per plant, not inherited), rolled when a flower blooms during weather:
 Dewy (rain) ×2, Moonlit (night) ×3, Golden (golden hour) ×5, Rainbow (rainbow) ×10. Giant 1 % any time ×3.
